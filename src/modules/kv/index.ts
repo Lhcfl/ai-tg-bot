@@ -1,6 +1,8 @@
+import { TOML } from "bun";
 import type { Context } from "@/lib/bot-proxy";
-import { matchCommand, splitArgs } from "@/lib/command";
+import { splitArgs } from "@/lib/command";
 import { createTable } from "@/lib/db";
+import { markdownToTelegramHtml } from "@/lib/markdown";
 
 const chatKVs = createTable("chat_kvs", {
   id: { type: "INTEGER", primaryKey: true, autoIncrement: true },
@@ -42,6 +44,31 @@ export function ChatKv(ctx: Context) {
 
   const { sqlite, bot } = ctx;
   chatKVs.init(sqlite);
+
+  ctx.command(
+    {
+      command: "helpkv",
+      description: "显示键值对用来干什么",
+    },
+    async (msg) => {
+      bot.sendMessage(
+        msg.chat.id,
+        await markdownToTelegramHtml(
+          Object.entries(
+            TOML.parse(
+              await Bun.file(new URL("kvlist.toml", import.meta.url)).text(),
+            ),
+          )
+            .map(([name, description]) => `• \`${name}\`: ${description}`)
+            .join("\n"),
+        ),
+        {
+          reply_to_message_id: msg.message_id,
+          parse_mode: "HTML",
+        },
+      );
+    },
+  );
 
   ctx.command(
     {

@@ -5,6 +5,7 @@ import z from "zod";
 import type { Context } from "@/lib/bot-proxy";
 import { safeJsonParseAsync } from "@/lib/json";
 import { markdownToTelegramHtml } from "@/lib/markdown";
+import { getChatKV } from "../kv";
 import {
   AutoReplySchema,
   execsTable,
@@ -220,7 +221,9 @@ export async function Ai(ctx: Context) {
 
       // Use AI to generate response with streaming
       const result = streamText({
-        model: openrouter(config.model, {}), // or any model you prefer
+        model: openrouter(
+          (await getChatKV(msg.chat.id, "model")) ?? config.model,
+        ), // or any model you prefer
         messages: [
           { role: "system", content: prompt },
           //   { role: "system", content: PROMPT_TOOLS },
@@ -238,6 +241,7 @@ export async function Ai(ctx: Context) {
         tools: makeToolSet(ctx, msg),
         toolChoice: "auto",
         headers: {
+          "HTTP-Referer": "https://github.com/Lhcfl/ai-tg-bot",
           "X-Title": `Telegram Bot`,
         },
       });
