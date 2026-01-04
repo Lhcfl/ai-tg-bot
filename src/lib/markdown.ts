@@ -6,7 +6,7 @@ import rehypeSanitize from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
 import remarkRehype from "remark-rehype";
 import { h } from "hastscript";
-// @ts-ignore
+// @ts-expect-error
 import { toHtml } from "hast-util-to-html";
 
 const ALLOWED_TAGS = [
