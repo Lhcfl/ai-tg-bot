@@ -1,6 +1,6 @@
+import { SQL } from "bun";
 import TelegramBot from "node-telegram-bot-api";
 import type { Config } from "./config";
-import { SQL } from "bun";
 
 const sqlite = new SQL({
   adapter: "sqlite",

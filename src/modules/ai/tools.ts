@@ -85,6 +85,12 @@ export const toolsInit = ({ sqlite }: Context) => sqlite`
     );
 
     CREATE INDEX IF NOT EXISTS idx_execs_chat_id ON execs (chat_id);
+
+    CREATE TABLE IF NOT EXISTS prompts (
+      chat_id INTEGER PRIMARY KEY,
+      value TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    );
   `;
 
 export function replaceMessage(msg: TelegramBot.Message, template: string) {

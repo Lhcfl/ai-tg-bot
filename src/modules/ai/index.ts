@@ -35,17 +35,27 @@ export async function Ai(ctx: Context) {
 
   const getMemories = async (chatId: number) => {
     const memories: { id: number; chat_id: number; message: string }[] =
-      await sqlite`SELECT * FROM memories WHERE chat_id = ${chatId} ORDER BY created_at DESC LIMIT 10`;
+      await sqlite`SELECT * FROM memories WHERE chat_id = ${chatId} ORDER BY created_at DESC LIMIT 50`;
 
     return memories;
   };
 
+  const getPrompt = async (chatId: number) => {
+    const res = await sqlite`
+      SELECT value FROM prompts WHERE chat_id = ${chatId}
+    `;
+    return res.at(0)?.value ?? SYSTEM_PROMPT_DEFAULT;
+  };
+
+  /** PROMPT */
   bot.onText(/^\/prompt(\s+?[\S\s]+)?/, async (msg, match) => {
     const newPrompt = match?.[1]?.trim();
 
     await bot.sendMessage(
       msg.chat.id,
-      await markdownToTelegramHtml(`当前的系统提示是：\n\n${PROMPT_TOOLS}`),
+      await markdownToTelegramHtml(
+        `当前的 prompt 是：\n\n${await getPrompt(msg.chat.id)}`,
+      ),
       {
         reply_to_message_id: msg.message_id,
         parse_mode: "HTML",
@@ -53,10 +63,33 @@ export async function Ai(ctx: Context) {
     );
 
     if (newPrompt) {
-      await bot.sendMessage(msg.chat.id, `该功能未完成`);
+      await sqlite`
+        INSERT INTO prompts (chat_id, value, created_at)
+        VALUES (${msg.chat.id}, ${newPrompt}, ${Date.now()})
+        ON CONFLICT(chat_id) DO UPDATE SET
+          value = excluded.value,
+          created_at = excluded.created_at;
+      `;
+
+      await bot.sendMessage(
+        msg.chat.id,
+        `已成功将 prompt 更新为：${newPrompt}`,
+        {
+          reply_to_message_id: msg.message_id,
+        },
+      );
+    } else {
+      await sqlite`
+        DELETE FROM prompts WHERE chat_id = ${msg.chat.id};
+      `;
+
+      await bot.sendMessage(msg.chat.id, "已成功重置 prompt 为默认值。", {
+        reply_to_message_id: msg.message_id,
+      });
     }
   });
 
+  /** AUTO REPLY */
   bot.on("message", async (msg) => {
     const execsArr = await getExecs(msg.chat.id);
 
@@ -78,6 +111,7 @@ export async function Ai(ctx: Context) {
     }
   });
 
+  /** AI */
   bot.on("message", async (msg) => {
     if (!msg.from || !msg.text) return;
 
@@ -100,6 +134,9 @@ export async function Ai(ctx: Context) {
       );
 
       const memories = await getMemories(msg.chat.id);
+      const prompt = await getPrompt(msg.chat.id);
+
+      console.log("[AI] Using prompt:", prompt);
 
       function generateMessage(msg?: TelegramBot.Message): ModelMessage[] {
         if (!msg) return [];
@@ -128,7 +165,7 @@ export async function Ai(ctx: Context) {
       const result = streamText({
         model: openrouter(config.model, {}), // or any model you prefer
         messages: [
-          { role: "system", content: SYSTEM_PROMPT_DEFAULT },
+          { role: "system", content: prompt },
           //   { role: "system", content: PROMPT_TOOLS },
           {
             role: "assistant",
@@ -161,7 +198,7 @@ export async function Ai(ctx: Context) {
       function generateTextToSend() {
         let txt = "";
         const reasoning = state.currentReasoning.trim();
-        if (reasoning && reasoning !== "[REDARTED]") {
+        if (reasoning && reasoning !== "[REDACTED]") {
           txt += "> ";
           txt += reasoning.replaceAll("\n", "\n> ");
           txt += "\n\n";
