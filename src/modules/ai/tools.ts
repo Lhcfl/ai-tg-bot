@@ -67,31 +67,35 @@ export const aiSchema = z.xor([
   RememberSchema,
 ]);
 
-export const toolsInit = ({ sqlite }: Context) => sqlite`
-    CREATE TABLE IF NOT EXISTS memories (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      chat_id INTEGER NOT NULL,
-      message TEXT NOT NULL,
-      created_at INTEGER NOT NULL
-    );
+import { createTable } from "@/lib/db";
 
-    CREATE INDEX IF NOT EXISTS idx_memories_chat_id ON memories (chat_id);
+// 定义表结构
+export const memoriesTable = createTable("memories", {
+  id: { type: "INTEGER", primaryKey: true, autoIncrement: true },
+  chat_id: { type: "INTEGER", notNull: true },
+  message: { type: "TEXT", notNull: true },
+  created_at: { type: "INTEGER", notNull: true },
+}).index("idx_memories_chat_id", ["chat_id"]);
 
-    CREATE TABLE IF NOT EXISTS execs (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      chat_id INTEGER NOT NULL,
-      value TEXT NOT NULL,
-      created_at INTEGER NOT NULL
-    );
+export const execsTable = createTable("execs", {
+  id: { type: "INTEGER", primaryKey: true, autoIncrement: true },
+  chat_id: { type: "INTEGER", notNull: true },
+  value: { type: "TEXT", notNull: true },
+  created_at: { type: "INTEGER", notNull: true },
+}).index("idx_execs_chat_id", ["chat_id"]);
 
-    CREATE INDEX IF NOT EXISTS idx_execs_chat_id ON execs (chat_id);
+export const promptsTable = createTable("prompts", {
+  chat_id: { type: "INTEGER", primaryKey: true },
+  value: { type: "TEXT", notNull: true },
+  created_at: { type: "INTEGER", notNull: true },
+});
 
-    CREATE TABLE IF NOT EXISTS prompts (
-      chat_id INTEGER PRIMARY KEY,
-      value TEXT NOT NULL,
-      created_at INTEGER NOT NULL
-    );
-  `;
+export const toolsInit = ({ db }: Context) => {
+  // 创建表
+  memoriesTable.init(db);
+  execsTable.init(db);
+  promptsTable.init(db);
+};
 
 export function replaceMessage(msg: TelegramBot.Message, template: string) {
   return template.replaceAll(
@@ -111,10 +115,11 @@ export const makeToolSet = (ctx: Context, msg: TelegramBot.Message) => ({
     inputSchema: AutoReplySchema,
     strict: true,
     async execute(input) {
-      await ctx.sqlite`
-        INSERT INTO execs (chat_id, value, created_at)
-        VALUES (${msg.chat.id}, ${JSON.stringify(input)}, ${Date.now()});
-      `;
+      execsTable.insert({
+        chat_id: msg.chat.id,
+        value: JSON.stringify(input),
+        created_at: Date.now(),
+      });
       return "ok";
     },
   }),
@@ -143,10 +148,11 @@ export const makeToolSet = (ctx: Context, msg: TelegramBot.Message) => ({
     inputSchema: RememberSchema,
     strict: true,
     async execute(input) {
-      await ctx.sqlite`
-            INSERT INTO memories (chat_id, message, created_at)
-            VALUES (${msg.chat.id}, ${input.message}, ${Date.now()});
-        `;
+      memoriesTable.insert({
+        chat_id: msg.chat.id,
+        message: input.message,
+        created_at: Date.now(),
+      });
       ctx.bot.sendMessage(msg.chat.id, `记住了 ${input.message}`, {
         reply_to_message_id: msg.message_id,
       });

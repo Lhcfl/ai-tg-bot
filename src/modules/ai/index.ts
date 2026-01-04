@@ -6,8 +6,10 @@ import { safeJsonParseAsync } from "@/lib/json";
 import { markdownToTelegramHtml } from "@/lib/markdown";
 import {
   AutoReplySchema,
+  execsTable,
   makeToolSet,
-  PROMPT_TOOLS,
+  memoriesTable,
+  promptsTable,
   replaceMessage,
   SYSTEM_PROMPT_DEFAULT,
   toolsInit,
@@ -16,17 +18,12 @@ import {
 export async function Ai(ctx: Context) {
   console.log("[AI] Initializing AI Database...");
 
-  const { bot, me, config, sqlite } = ctx;
+  const { bot, me, config } = ctx;
 
   await toolsInit(ctx);
 
   const getExecs = async (chatId: number) => {
-    const execsRaw: {
-      id: number;
-      chat_id: number;
-      value: string;
-      created_at: number;
-    }[] = await sqlite`SELECT * FROM execs WHERE chat_id = ${chatId}`;
+    const execsRaw = execsTable.where`chat_id = ${chatId}`;
 
     return Promise.all(
       execsRaw.map((x) => safeJsonParseAsync(AutoReplySchema, x.value)),
@@ -34,16 +31,13 @@ export async function Ai(ctx: Context) {
   };
 
   const getMemories = async (chatId: number) => {
-    const memories: { id: number; chat_id: number; message: string }[] =
-      await sqlite`SELECT * FROM memories WHERE chat_id = ${chatId} ORDER BY created_at DESC LIMIT 50`;
+    const memories = memoriesTable.where`chat_id = ${chatId} ORDER BY created_at DESC LIMIT 50`;
 
     return memories;
   };
 
   const getPrompt = async (chatId: number) => {
-    const res = await sqlite`
-      SELECT value FROM prompts WHERE chat_id = ${chatId}
-    `;
+    const res = promptsTable.where<{ value: string }>`chat_id = ${chatId}`;
     return res.at(0)?.value ?? SYSTEM_PROMPT_DEFAULT;
   };
 
@@ -63,13 +57,11 @@ export async function Ai(ctx: Context) {
     );
 
     if (newPrompt) {
-      await sqlite`
-        INSERT INTO prompts (chat_id, value, created_at)
-        VALUES (${msg.chat.id}, ${newPrompt}, ${Date.now()})
-        ON CONFLICT(chat_id) DO UPDATE SET
-          value = excluded.value,
-          created_at = excluded.created_at;
-      `;
+      promptsTable.upsert({
+        chat_id: msg.chat.id,
+        value: newPrompt,
+        created_at: Date.now(),
+      });
 
       await bot.sendMessage(
         msg.chat.id,
@@ -79,9 +71,7 @@ export async function Ai(ctx: Context) {
         },
       );
     } else {
-      await sqlite`
-        DELETE FROM prompts WHERE chat_id = ${msg.chat.id};
-      `;
+      promptsTable.delete("chat_id = ?", msg.chat.id);
 
       await bot.sendMessage(msg.chat.id, "已成功重置 prompt 为默认值。", {
         reply_to_message_id: msg.message_id,
