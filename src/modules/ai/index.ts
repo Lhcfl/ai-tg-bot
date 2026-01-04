@@ -18,7 +18,7 @@ import {
 export async function Ai(ctx: Context) {
   console.log("[AI] Initializing AI Database...");
 
-  const { bot, me, config, sqlite } = ctx;
+  const { bot, me, config } = ctx;
 
   await toolsInit(ctx);
 
@@ -46,16 +46,8 @@ export async function Ai(ctx: Context) {
   bot.onText(/^\/prompt(\s+?[\S\s]+)?/, async (msg, match) => {
     const newPrompt = match?.[1]?.trim();
 
-    await bot.sendMessage(
-      msg.chat.id,
-      await markdownToTelegramHtml(
-        `当前的 prompt 是：\n\n${await getPrompt(msg.chat.id)}`,
-      ),
-      {
-        reply_to_message_id: msg.message_id,
-        parse_mode: "HTML",
-      },
-    );
+    const prompt = await getPrompt(msg.chat.id);
+    let text = "";
 
     if (newPrompt) {
       await promptsTable.upsert(
@@ -67,20 +59,21 @@ export async function Ai(ctx: Context) {
         "chat_id",
       );
 
-      await bot.sendMessage(
-        msg.chat.id,
-        `已成功将 prompt 更新为：${newPrompt}`,
-        {
-          reply_to_message_id: msg.message_id,
-        },
-      );
+      text = `已成功将 prompt 更新为：${newPrompt}`;
     } else {
       await promptsTable.deleteWhere`chat_id = ${msg.chat.id}`;
 
-      await bot.sendMessage(msg.chat.id, "已成功重置 prompt 为默认值。", {
-        reply_to_message_id: msg.message_id,
-      });
+      text = `已成功将 prompt 重置为默认值。`;
     }
+
+    await bot.sendMessage(
+      msg.chat.id,
+      await markdownToTelegramHtml(`旧的 prompt 是：\n\n${prompt}\n\n${text}`),
+      {
+        reply_to_message_id: msg.message_id,
+        parse_mode: "HTML",
+      },
+    );
   });
 
   /** AUTO REPLY */
