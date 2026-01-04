@@ -1,8 +1,13 @@
-import { Database } from "bun:sqlite";
+import { SQL } from "bun";
 import TelegramBot from "node-telegram-bot-api";
 import type { Config } from "./config";
 
-const sqlite = new Database("data.sqlite", { create: true });
+const sqlite = new SQL({
+  adapter: "sqlite",
+  filename: "data.sqlite",
+  create: true,
+  readwrite: true,
+});
 
 type Plugin = (ctx: Context) => void | Promise<void>;
 

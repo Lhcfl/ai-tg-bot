@@ -18,12 +18,12 @@ import {
 export async function Ai(ctx: Context) {
   console.log("[AI] Initializing AI Database...");
 
-  const { bot, me, config } = ctx;
+  const { bot, me, config, sqlite } = ctx;
 
   await toolsInit(ctx);
 
   const getExecs = async (chatId: number) => {
-    const execsRaw = execsTable.where`chat_id = ${chatId}`;
+    const execsRaw = await execsTable.where`chat_id = ${chatId}`;
 
     return Promise.all(
       execsRaw.map((x) => safeJsonParseAsync(AutoReplySchema, x.value)),
@@ -31,13 +31,14 @@ export async function Ai(ctx: Context) {
   };
 
   const getMemories = async (chatId: number) => {
-    const memories = memoriesTable.where`chat_id = ${chatId} ORDER BY created_at DESC LIMIT 50`;
+    const memories =
+      await memoriesTable.where`chat_id = ${chatId} ORDER BY created_at DESC LIMIT 50`;
 
     return memories;
   };
 
   const getPrompt = async (chatId: number) => {
-    const res = promptsTable.where<{ value: string }>`chat_id = ${chatId}`;
+    const res = await promptsTable.where`chat_id = ${chatId}`;
     return res.at(0)?.value ?? SYSTEM_PROMPT_DEFAULT;
   };
 
@@ -57,11 +58,14 @@ export async function Ai(ctx: Context) {
     );
 
     if (newPrompt) {
-      promptsTable.upsert({
-        chat_id: msg.chat.id,
-        value: newPrompt,
-        created_at: Date.now(),
-      });
+      await promptsTable.upsert(
+        {
+          chat_id: msg.chat.id,
+          value: newPrompt,
+          created_at: Date.now(),
+        },
+        "chat_id",
+      );
 
       await bot.sendMessage(
         msg.chat.id,
@@ -71,7 +75,7 @@ export async function Ai(ctx: Context) {
         },
       );
     } else {
-      promptsTable.delete("chat_id = ?", msg.chat.id);
+      await promptsTable.deleteWhere`chat_id = ${msg.chat.id}`;
 
       await bot.sendMessage(msg.chat.id, "已成功重置 prompt 为默认值。", {
         reply_to_message_id: msg.message_id,

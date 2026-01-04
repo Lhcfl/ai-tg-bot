@@ -1,4 +1,4 @@
-import type { Database as BunDatabase } from "bun:sqlite";
+import type { SQL } from "bun";
 
 type ColumnType = "INTEGER" | "TEXT" | "REAL" | "BLOB";
 
@@ -42,7 +42,7 @@ interface QueryMethods<Schema extends SchemaDefinition> {
   sql<T = InferRowType<Schema>>(
     strings: TemplateStringsArray,
     ...values: SQLiteValue[]
-  ): QueryResult<T>;
+  ): Promise<QueryResult<T>>;
 }
 
 /**
@@ -88,7 +88,7 @@ export class TableBuilder<Schema extends SchemaDefinition> {
   private tableName: string;
   private schema: Schema;
   private indices: Map<string, IndexDef>;
-  private db!: BunDatabase;
+  public sql!: SQL;
 
   constructor(tableName: string, schema: Schema) {
     validateIdentifier(tableName, "table");
@@ -117,8 +117,8 @@ export class TableBuilder<Schema extends SchemaDefinition> {
   /**
    * Initialize the table - creates if not exists
    */
-  init(db: BunDatabase): void {
-    this.db = db;
+  async init(db: SQL): Promise<void> {
+    this.sql = db;
     const columns: string[] = [];
 
     for (const [colName, colDef] of Object.entries(this.schema)) {
@@ -157,7 +157,7 @@ export class TableBuilder<Schema extends SchemaDefinition> {
       )
     `;
 
-    this.db.run(createTableSQL);
+    await this.sql.unsafe(createTableSQL);
 
     // Create indices
     for (const [indexName, indexDef] of this.indices) {
@@ -166,44 +166,15 @@ export class TableBuilder<Schema extends SchemaDefinition> {
         CREATE ${uniqueStr}INDEX IF NOT EXISTS ${indexName} 
         ON ${this.tableName} (${indexDef.columns.join(", ")})
       `;
-      this.db.run(indexSQL);
+      await this.sql.unsafe(indexSQL);
     }
-  }
-
-  private assertDb(): void {
-    if (!this.db) {
-      throw new Error(
-        `Table "${this.tableName}" not initialized. Call init(db) first.`,
-      );
-    }
-  }
-
-  /**
-   * Type-safe SQL query method
-   */
-  sql<T = InferRowType<Schema>>(
-    strings: TemplateStringsArray,
-    ...values: SQLiteValue[]
-  ): QueryResult<T> {
-    this.assertDb();
-    // Build the query string
-    let query = strings[0];
-    for (let i = 0; i < values.length; i++) {
-      query += `?${strings[i + 1]}`;
-    }
-
-    // Use prepared statement for safety
-    const stmt = this.db.prepare(query || "");
-    const result = stmt.all(...values) as T[];
-    return result;
   }
 
   /**
    * Get all records
    */
-  all(): QueryResult<InferRowType<Schema>> {
-    this.assertDb();
-    return this.sql`SELECT * FROM ${this.tableName}`;
+  async all(): Promise<QueryResult<InferRowType<Schema>>> {
+    return this.sql`SELECT * FROM ${this.sql(this.tableName)}`;
   }
 
   /**
@@ -212,138 +183,56 @@ export class TableBuilder<Schema extends SchemaDefinition> {
    * table.where`chat_id = ${123}`
    * table.where`chat_id = ${123} ORDER BY created_at DESC LIMIT 10`
    */
-  where<T = InferRowType<Schema>>(
+  async where<T = InferRowType<Schema>>(
     strings: TemplateStringsArray,
     ...values: SQLiteValue[]
-  ): QueryResult<T> {
-    this.assertDb();
-    // Build the WHERE clause
-    let whereClause = strings[0];
-    for (let i = 0; i < values.length; i++) {
-      whereClause += `?${strings[i + 1]}`;
-    }
-
-    const query = `SELECT * FROM ${this.tableName} WHERE ${whereClause}`;
-    const stmt = this.db.prepare(query);
-    const result = stmt.all(...values) as T[];
-    return result;
-  }
-
-  /**
-   * Insert a record
-   */
-  insert(data: Partial<InferRowType<Schema>>): void {
-    this.assertDb();
-    const columns = Object.keys(data);
-
-    // Validate column names (should already be validated, but double-check)
-    for (const col of columns) {
-      if (!(col in this.schema)) {
-        throw new Error(
-          `Column "${col}" does not exist in table "${this.tableName}" schema.`,
-        );
-      }
-    }
-
-    const placeholders = columns.map(() => "?").join(", ");
-    const values = Object.values(data);
-
-    const query = `INSERT INTO ${this.tableName} (${columns.join(", ")}) VALUES (${placeholders})`;
-    const stmt = this.db.prepare(query);
-    stmt.run(...values);
-  }
-
-  /**
-   * Insert or update a record (UPSERT)
-   * Uses ON CONFLICT to update on primary key conflict
-   */
-  upsert(data: Partial<InferRowType<Schema>>): void {
-    this.assertDb();
-    const columns = Object.keys(data);
-
-    // Validate column names
-    for (const col of columns) {
-      if (!(col in this.schema)) {
-        throw new Error(
-          `Column "${col}" does not exist in table "${this.tableName}" schema.`,
-        );
-      }
-    }
-
-    const placeholders = columns.map(() => "?").join(", ");
-    const values = Object.values(data);
-
-    // Find primary key columns for conflict resolution
-    const primaryKeys = Object.entries(this.schema)
-      .filter(([_, def]) => def.primaryKey)
-      .map(([name, _]) => name);
-
-    if (primaryKeys.length === 0) {
-      throw new Error(
-        `Table "${this.tableName}" has no primary key. Cannot use upsert.`,
-      );
-    }
-
-    // Build UPDATE SET clause (exclude primary keys from update)
-    const updateSets = columns
-      .filter((col) => !primaryKeys.includes(col))
-      .map((col) => `${col} = excluded.${col}`)
-      .join(", ");
-
-    const query = `
-      INSERT INTO ${this.tableName} (${columns.join(", ")})
-      VALUES (${placeholders})
-      ON CONFLICT(${primaryKeys.join(", ")}) DO UPDATE SET
-        ${updateSets}
-    `;
-
-    const stmt = this.db.prepare(query);
-    stmt.run(...values);
+  ): Promise<QueryResult<T>> {
+    const result = await this
+      .sql`SELECT * FROM ${this.sql(this.tableName)} WHERE ${this.sql(strings, ...values)}`;
+    return result as T[];
   }
 
   /**
    * Update records
    */
-  update(
-    data: Partial<InferRowType<Schema>>,
-    where: string,
-    ...whereValues: SQLiteValue[]
-  ): void {
-    this.assertDb();
-
-    // Validate column names
-    const columns = Object.keys(data);
-    for (const col of columns) {
-      if (!(col in this.schema)) {
-        throw new Error(
-          `Column "${col}" does not exist in table "${this.tableName}" schema.`,
-        );
-      }
-    }
-
-    const sets = columns.map((key) => `${key} = ?`).join(", ");
-    const values = [...Object.values(data), ...whereValues];
-
-    const query = `UPDATE ${this.tableName} SET ${sets} WHERE ${where}`;
-    const stmt = this.db.prepare(query);
-    stmt.run(...values);
+  async update(data: Partial<InferRowType<Schema>>) {
+    return {
+      where: (arr: TemplateStringsArray, ...values: SQLiteValue[]) => {
+        this.sql`UPDATE ${this.sql(this.tableName)} SET ${this.sql(
+          data,
+        )} WHERE ${this.sql(arr, ...values)}`;
+      },
+    };
   }
 
   /**
    * Delete records
    */
-  delete(where: string, ...whereValues: SQLiteValue[]): void {
-    this.assertDb();
-    const query = `DELETE FROM ${this.tableName} WHERE ${where}`;
-    const stmt = this.db.prepare(query);
-    stmt.run(...whereValues);
+  async deleteWhere(
+    arr: TemplateStringsArray,
+    ...values: SQLiteValue[]
+  ): Promise<void> {
+    return this
+      .sql`DELETE FROM ${this.sql(this.tableName)} WHERE ${this.sql(arr, ...values)}`;
   }
 
-  /**
-   * Get the underlying database instance
-   */
-  get database(): BunDatabase {
-    return this.db;
+  insert(data: Partial<InferRowType<Schema>>) {
+    const columns = Object.keys(this.schema).filter((col) => col in data);
+    const values = columns.map((col) => (data as Record<string, unknown>)[col]);
+    // biome-ignore lint/suspicious/noExplicitAny: to bypass TemplateStringsArray typing
+    const template: any = [
+      "INSERT INTO ",
+      `(${columns.join(",")}) VALUES (`,
+      ...values.map((_) => ",").slice(1),
+      ")",
+    ];
+    template.raw = template;
+    return this.sql(template as never, this.sql(this.tableName), ...values);
+  }
+
+  async upsert(data: InferRowType<Schema>, conflict: string): Promise<void> {
+    return this
+      .sql`${this.insert(data)} ON CONFLICT(${this.sql(conflict)}) DO UPDATE SET ${this.sql(data)}`;
   }
 
   /**

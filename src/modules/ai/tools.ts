@@ -90,11 +90,11 @@ export const promptsTable = createTable("prompts", {
   created_at: { type: "INTEGER", notNull: true },
 });
 
-export const toolsInit = ({ db }: Context) => {
+export const toolsInit = async ({ db }: Context) => {
   // 创建表
-  memoriesTable.init(db);
-  execsTable.init(db);
-  promptsTable.init(db);
+  await memoriesTable.init(db);
+  await execsTable.init(db);
+  await promptsTable.init(db);
 };
 
 export function replaceMessage(msg: TelegramBot.Message, template: string) {
@@ -115,10 +115,13 @@ export const makeToolSet = (ctx: Context, msg: TelegramBot.Message) => ({
     inputSchema: AutoReplySchema,
     strict: true,
     async execute(input) {
-      execsTable.insert({
+      await execsTable.insert({
         chat_id: msg.chat.id,
         value: JSON.stringify(input),
         created_at: Date.now(),
+      });
+      ctx.bot.sendMessage(msg.chat.id, `成功地注册了 auto_reply`, {
+        reply_to_message_id: msg.message_id,
       });
       return "ok";
     },
@@ -148,7 +151,7 @@ export const makeToolSet = (ctx: Context, msg: TelegramBot.Message) => ({
     inputSchema: RememberSchema,
     strict: true,
     async execute(input) {
-      memoriesTable.insert({
+      await memoriesTable.insert({
         chat_id: msg.chat.id,
         message: input.message,
         created_at: Date.now(),
