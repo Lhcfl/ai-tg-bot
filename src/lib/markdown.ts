@@ -121,7 +121,7 @@ export async function markdownToTelegramHtml(
   markdown: string,
 ): Promise<string> {
   const result = await processor.process(markdown);
-  return result.toString().replaceAll(/\n+/, "\n");
+  return result.toString().replaceAll(/\n+/g, "\n");
 }
 
 const mdparser = unified().use(remarkParse);
