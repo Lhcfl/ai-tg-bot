@@ -15,7 +15,7 @@ type Plugin = (ctx: Context) => void | Promise<void>;
 export class Context {
   public plugins: Plugin[] = [];
   public frozen = false;
-  private commands: BotCommand[] = [];
+  public commands: BotCommand[] = [];
 
   constructor(
     public me: TelegramBot.User,
@@ -85,11 +85,7 @@ export class Context {
       successful,
     );
     if (failed.length > 0) {
-      console.log(
-        `[plugin] ${failed.length} plugins failed to load: ${failed
-          .map((f) => f.name)
-          .join(", ")}`,
-      );
+      console.log(`[plugin] ${failed.length} plugins failed to load`, failed);
     }
 
     await this.bot.setMyCommands(this.commands);

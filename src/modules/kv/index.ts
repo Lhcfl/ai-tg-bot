@@ -46,7 +46,7 @@ export function ChatKv(ctx: Context) {
   ctx.command(
     {
       command: "listkv",
-      description: "/listkv 列出当前聊天的所有键值对",
+      description: "列出当前聊天的所有键值对",
     },
     async (msg) => {
       const kvs = await chatKVs.where`chat_id = ${msg.chat.id}`;
@@ -71,7 +71,7 @@ export function ChatKv(ctx: Context) {
   ctx.command(
     {
       command: "setkv",
-      description: "/setkv <key> <val> 设置聊天的键值对",
+      description: "[key] [val] 设置聊天的键值对",
     },
     async (msg, rest) => {
       const [key, value] = splitArgs(rest);
@@ -96,7 +96,7 @@ export function ChatKv(ctx: Context) {
   ctx.command(
     {
       command: "deletekv",
-      description: "/deletekv <key> 删除聊天的键值对",
+      description: `[key] 删除聊天的键值对`,
     },
     async (msg, key) => {
       if (!key) {

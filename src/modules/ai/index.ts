@@ -1,6 +1,7 @@
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { type ModelMessage, streamText } from "ai";
 import type TelegramBot from "node-telegram-bot-api";
+import z from "zod";
 import type { Context } from "@/lib/bot-proxy";
 import { safeJsonParseAsync } from "@/lib/json";
 import { markdownToTelegramHtml } from "@/lib/markdown";
@@ -45,7 +46,7 @@ export async function Ai(ctx: Context) {
   ctx.command(
     {
       command: "prompt",
-      description: "/prompt [new prompt] 查看和设置当前聊天的 AI 提示语",
+      description: "[new prompt] 查看和设置当前聊天的 AI 提示语",
     },
     async (msg, newPrompt) => {
       const prompt = await getPrompt(msg.chat.id);
@@ -105,8 +106,42 @@ export async function Ai(ctx: Context) {
 
   ctx.command(
     {
+      command: "listexecs",
+      description: "列出当前聊天的所有自动回复规则",
+    },
+    async (msg) => {
+      const execs = await getExecs(msg.chat.id);
+
+      if (execs.length === 0) {
+        await bot.sendMessage(msg.chat.id, "当前没有自动回复规则。", {
+          reply_to_message_id: msg.message_id,
+        });
+        return;
+      }
+
+      const lines = execs.map((x) =>
+        x.success
+          ? `- ✔️ \`${x.data.when}\` ➡️ ${x.data.message}`
+          : `- ✖️ (${z.prettifyError(x.error)})`,
+      );
+
+      await bot.sendMessage(
+        msg.chat.id,
+        await markdownToTelegramHtml(
+          `当前的自动回复规则有：\n\n${lines.join("\n")}`,
+        ),
+        {
+          reply_to_message_id: msg.message_id,
+          parse_mode: "HTML",
+        },
+      );
+    },
+  );
+
+  ctx.command(
+    {
       command: "memories",
-      description: "/memories 列出当前聊天的所有记忆",
+      description: "列出当前聊天的所有记忆",
     },
     async (msg) => {
       const memories = await getMemories(msg.chat.id);

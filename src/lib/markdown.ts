@@ -33,8 +33,6 @@ const rehypeTelegramHtml: Plugin<[], Root> = () => (tree) =>
       case "code":
         if (node.data?.meta === "in-pre") {
           keepProperties.add("class");
-        } else {
-          node.tagName = "pre";
         }
         break;
       case "pre": {
