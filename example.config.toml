@@ -1,0 +1,7 @@
+# Telegram Bot Configuration
+# Copy this file to config.toml and fill in your values
+
+telegram_bot_token = "your_telegram_bot_token_here"
+openrouter_api_key = "your_openrouter_api_key_here"
+model = "openai/gpt-3.5-turbo"
+app_name = "Telegram Bot"

@@ -1,0 +1,33 @@
+{
+  "name": "tgbot",
+  "module": "src/index.ts",
+  "type": "module",
+  "private": true,
+  "devDependencies": {
+    "@biomejs/biome": "^2.3.11",
+    "@types/bun": "latest",
+    "@types/node-telegram-bot-api": "^0.64.13"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "scripts": {
+    "start": "bun run src/index.ts"
+  },
+  "dependencies": {
+    "@openrouter/ai-sdk-provider": "^1.5.4",
+    "ai": "^6.0.6",
+    "hast-util-to-html": "https://github.com/Lhcfl/hast-util-to-html-with-subset",
+    "hastscript": "^9.0.1",
+    "node-telegram-bot-api": "^0.67.0",
+    "rehype-sanitize": "^6.0.0",
+    "rehype-stringify": "^10.0.1",
+    "remark": "^15.0.1",
+    "remark-gfm": "^4.0.1",
+    "remark-html": "^16.0.1",
+    "remark-rehype": "^11.1.2",
+    "unified": "^11.0.5",
+    "unist-util-visit": "^5.0.0",
+    "zod": "^4.3.4"
+  }
+}
