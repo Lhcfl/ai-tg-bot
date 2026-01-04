@@ -1,5 +1,6 @@
 import { SQL } from "bun";
-import TelegramBot from "node-telegram-bot-api";
+import TelegramBot, { type BotCommand } from "node-telegram-bot-api";
+import { ms } from "zod/locales";
 import type { Config } from "./config";
 
 const sqlite = new SQL({
@@ -14,12 +15,34 @@ type Plugin = (ctx: Context) => void | Promise<void>;
 export class Context {
   public plugins: Plugin[] = [];
   public frozen = false;
+  private commands: BotCommand[] = [];
 
   constructor(
     public me: TelegramBot.User,
     public bot: TelegramBot,
     public config: Config,
   ) {}
+
+  command(
+    command: BotCommand,
+    fn: (msg: TelegramBot.Message, rest: string) => void,
+  ) {
+    this.commands.push(command);
+    this.bot.on("message", (msg) => {
+      if (!msg.text) return;
+      const ent = msg.entities?.find((x) => {
+        if (x.type !== "bot_command") return false;
+        const cmdText = msg.text?.substring(x.offset, x.offset + x.length);
+        return (
+          cmdText === `/${command.command}` ||
+          cmdText === `/${command.command}@${this.me.username}`
+        );
+      });
+      if (ent != null) {
+        fn(msg, msg.text.slice(ent.offset + ent.length).trim());
+      }
+    });
+  }
 
   use(plugin: Plugin) {
     if (this.frozen) {
@@ -68,6 +91,8 @@ export class Context {
           .join(", ")}`,
       );
     }
+
+    await this.bot.setMyCommands(this.commands);
   }
 }
 

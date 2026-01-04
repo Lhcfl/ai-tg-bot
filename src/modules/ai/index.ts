@@ -42,39 +42,44 @@ export async function Ai(ctx: Context) {
     return res.at(0)?.value ?? SYSTEM_PROMPT_DEFAULT;
   };
 
-  /** PROMPT */
-  bot.onText(/^\/prompt(\s+?[\S\s]+)?/, async (msg, match) => {
-    const newPrompt = match?.[1]?.trim();
+  ctx.command(
+    {
+      command: "prompt",
+      description: "/prompt [new prompt] 查看和设置当前聊天的 AI 提示语",
+    },
+    async (msg, newPrompt) => {
+      const prompt = await getPrompt(msg.chat.id);
+      let text = "";
 
-    const prompt = await getPrompt(msg.chat.id);
-    let text = "";
+      if (newPrompt) {
+        await promptsTable.upsert(
+          {
+            chat_id: msg.chat.id,
+            value: newPrompt,
+            created_at: Date.now(),
+          },
+          "chat_id",
+        );
 
-    if (newPrompt) {
-      await promptsTable.upsert(
+        text = `已成功将 prompt 更新为：${newPrompt}`;
+      } else {
+        await promptsTable.deleteWhere`chat_id = ${msg.chat.id}`;
+
+        text = `已成功将 prompt 重置为默认值。`;
+      }
+
+      await bot.sendMessage(
+        msg.chat.id,
+        await markdownToTelegramHtml(
+          `旧的 prompt 是：\n\n${prompt}\n\n${text}`,
+        ),
         {
-          chat_id: msg.chat.id,
-          value: newPrompt,
-          created_at: Date.now(),
+          reply_to_message_id: msg.message_id,
+          parse_mode: "HTML",
         },
-        "chat_id",
       );
-
-      text = `已成功将 prompt 更新为：${newPrompt}`;
-    } else {
-      await promptsTable.deleteWhere`chat_id = ${msg.chat.id}`;
-
-      text = `已成功将 prompt 重置为默认值。`;
-    }
-
-    await bot.sendMessage(
-      msg.chat.id,
-      await markdownToTelegramHtml(`旧的 prompt 是：\n\n${prompt}\n\n${text}`),
-      {
-        reply_to_message_id: msg.message_id,
-        parse_mode: "HTML",
-      },
-    );
-  });
+    },
+  );
 
   /** AUTO REPLY */
   bot.on("message", async (msg) => {
@@ -98,12 +103,42 @@ export async function Ai(ctx: Context) {
     }
   });
 
+  ctx.command(
+    {
+      command: "memories",
+      description: "/memories 列出当前聊天的所有记忆",
+    },
+    async (msg) => {
+      const memories = await getMemories(msg.chat.id);
+
+      if (memories.length === 0) {
+        await bot.sendMessage(msg.chat.id, "当前没有记忆。", {
+          reply_to_message_id: msg.message_id,
+        });
+        return;
+      }
+
+      const lines = memories.map(
+        (x) =>
+          `- (${new Date(x.created_at).toLocaleDateString()}) ${x.message}`,
+      );
+
+      await bot.sendMessage(
+        msg.chat.id,
+        `当前的记忆有：\n\n${lines.join("\n")}`,
+        {
+          reply_to_message_id: msg.message_id,
+        },
+      );
+    },
+  );
+
   /** AI */
   bot.on("message", async (msg) => {
     if (!msg.from || !msg.text) return;
 
     const condition =
-      msg.text.includes(`@${me.username}`) ||
+      msg.text.split(" ").includes(`@${me.username}`) ||
       msg.reply_to_message?.from?.id === me.id;
 
     if (!condition) return;

@@ -38,3 +38,12 @@ export function matchCommand(msg: TelegramBot.Message, command: Command) {
     command,
   });
 }
+
+export function splitArgs(text: string) {
+  const firstSpaceIdx_ = text.indexOf(" ");
+  const firstSpaceIdx = firstSpaceIdx_ === -1 ? text.length : firstSpaceIdx_;
+  const cmdPart = text.slice(0, firstSpaceIdx);
+  const argsPart = text.slice(firstSpaceIdx + 1).trim();
+
+  return [cmdPart, argsPart] as const;
+}

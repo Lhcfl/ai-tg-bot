@@ -216,7 +216,7 @@ export class TableBuilder<Schema extends SchemaDefinition> {
       .sql`DELETE FROM ${this.sql(this.tableName)} WHERE ${this.sql(arr, ...values)}`;
   }
 
-  insert(data: Partial<InferRowType<Schema>>) {
+  insert(data: Partial<Omit<InferRowType<Schema>, "id">>) {
     const columns = Object.keys(this.schema).filter((col) => col in data);
     const values = columns.map((col) => (data as Record<string, unknown>)[col]);
     // biome-ignore lint/suspicious/noExplicitAny: to bypass TemplateStringsArray typing
@@ -230,7 +230,10 @@ export class TableBuilder<Schema extends SchemaDefinition> {
     return this.sql(template as never, this.sql(this.tableName), ...values);
   }
 
-  async upsert(data: InferRowType<Schema>, conflict: string): Promise<void> {
+  async upsert(
+    data: Omit<InferRowType<Schema>, "id">,
+    conflict: string,
+  ): Promise<void> {
     return this
       .sql`${this.insert(data)} ON CONFLICT(${this.sql(conflict)}) DO UPDATE SET ${this.sql(data)}`;
   }
