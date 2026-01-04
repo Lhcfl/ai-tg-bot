@@ -55,6 +55,10 @@ const rehypeTelegramHtml: Plugin<[], Root> = () => (tree) =>
       case "a":
         keepProperties.add("href");
         break;
+      case "blockquote":
+        node.properties = { expandable: true };
+        keepProperties.add("expandable");
+        break;
       case "h1":
       case "h2":
       case "h3":
@@ -99,6 +103,7 @@ const processor = unified()
     attributes: {
       a: ["href"],
       code: ["class"],
+      blockquote: ["expandable"],
     },
   })
   .use(function () {
