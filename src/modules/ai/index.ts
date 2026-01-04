@@ -180,6 +180,13 @@ export async function Ai(ctx: Context) {
     if (!condition) return;
 
     try {
+      if (
+        config.chat_allow_list &&
+        !config.chat_allow_list.includes(msg.chat.id)
+      ) {
+        return;
+      }
+
       const openrouter = createOpenRouter({
         apiKey: config.openrouter_api_key,
       });
@@ -226,13 +233,12 @@ export async function Ai(ctx: Context) {
         ), // or any model you prefer
         messages: [
           { role: "system", content: prompt },
-          //   { role: "system", content: PROMPT_TOOLS },
           {
-            role: "assistant",
+            role: "system",
             content: [
-              `我的用户名是 @${me.username}。`,
-              `我的昵称是 ${me.first_name}。`,
-              `我有以下记忆：`,
+              `你的用户名是 @${me.username}。`,
+              `你的昵称是 ${me.first_name}。`,
+              `你有以下记忆：`,
               ...memories.map((x) => `- ${x.message}`),
             ].join("\n"),
           },

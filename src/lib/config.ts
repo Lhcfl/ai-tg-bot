@@ -6,6 +6,7 @@ const configSchema = z.object({
   openrouter_api_key: z.string().min(1, "OPENROUTER_API_KEY is required"),
   model: z.string().default("openai/gpt-3.5-turbo"),
   app_name: z.string().default("Telegram Bot"),
+  chat_allow_list: z.array(z.number()).optional(),
 });
 
 export const readConfig = async () => {
