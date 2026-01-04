@@ -54,14 +54,12 @@ export async function Ai(ctx: Context) {
       let text = "";
 
       if (newPrompt) {
-        await promptsTable.upsert(
-          {
-            chat_id: msg.chat.id,
-            value: newPrompt,
-            created_at: Date.now(),
-          },
-          "chat_id",
-        );
+        await promptsTable.deleteWhere`chat_id = ${msg.chat.id}`;
+        await promptsTable.insert({
+          chat_id: msg.chat.id,
+          value: newPrompt,
+          created_at: Date.now(),
+        });
 
         text = `已成功将 prompt 更新为：${newPrompt}`;
       } else {
