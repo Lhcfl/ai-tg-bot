@@ -171,6 +171,10 @@ export async function Ai(ctx: Context) {
   bot.on("message", async (msg) => {
     if (!msg.from || !msg.text) return;
 
+    if (msg.text.startsWith("/")) {
+      return;
+    }
+
     const condition =
       msg.text.split(" ").includes(`@${me.username}`) ||
       msg.reply_to_message?.from?.id === me.id;
