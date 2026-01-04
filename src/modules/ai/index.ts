@@ -1,5 +1,5 @@
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
-import { type ModelMessage, streamText } from "ai";
+import { generateText, type ModelMessage, streamText } from "ai";
 import type TelegramBot from "node-telegram-bot-api";
 import z from "zod";
 import type { Context } from "@/lib/bot-proxy";
@@ -177,7 +177,42 @@ export async function Ai(ctx: Context) {
       msg.text.split(" ").includes(`@${me.username}`) ||
       msg.reply_to_message?.from?.id === me.id;
 
-    if (!condition) return;
+    const openrouter = createOpenRouter({
+      apiKey: config.openrouter_api_key,
+    });
+
+    if (!condition) {
+      const weakerCondition = msg.text.includes("什么");
+      if (!weakerCondition || Math.random() < 0.5) {
+        return;
+      }
+
+      try {
+        const aicheck = await generateText({
+          model: openrouter("openai/gpt-oss-20b"),
+          messages: [
+            {
+              role: "system",
+              content:
+                "仅当用户看上去在提问或者寻求帮助时，回复“yes”，否则回复“no”。不要回复其他内容。",
+            },
+            {
+              role: "user",
+              content: msg.text,
+            },
+          ],
+        });
+
+        console.log(aicheck);
+
+        if (aicheck.text.trim().toLowerCase() !== "yes") {
+          return;
+        }
+      } catch (error) {
+        console.error("Error during AI check:", error);
+        return;
+      }
+    }
 
     try {
       if (
@@ -186,10 +221,6 @@ export async function Ai(ctx: Context) {
       ) {
         return;
       }
-
-      const openrouter = createOpenRouter({
-        apiKey: config.openrouter_api_key,
-      });
 
       // Send initial message
       const sentMessage = await bot.sendMessage(
