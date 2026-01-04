@@ -1,6 +1,8 @@
-import type { Context } from "@/lib/bot-proxy";
+import type { Tool } from "ai";
 import type TelegramBot from "node-telegram-bot-api";
 import z from "zod";
+import type { Context } from "@/lib/bot-proxy";
+import { markdownToTelegramHtml } from "@/lib/markdown";
 
 const EXAMPLE = {
   kind: "auto_reply",
@@ -42,23 +44,27 @@ ${JSON.stringify(EXAMPLE)}
 - 使用 $1, $2 等来引用正则表达式的捕获组（如果有）。
 `;
 
-export const execSchema = z.object({
+export const AutoReplySchema = z.object({
   kind: z.literal("auto_reply"),
   when: z.string(),
   message: z.string(),
 });
 
+export const ReplyAfterSchema = z.object({
+  kind: z.literal("reply_after"),
+  timeout: z.number().min(1),
+  message: z.string(),
+});
+
+export const RememberSchema = z.object({
+  kind: z.literal("remember"),
+  message: z.string(),
+});
+
 export const aiSchema = z.xor([
-  execSchema,
-  z.object({
-    kind: z.literal("reply_timeout"),
-    timeout: z.number().min(1),
-    message: z.string(),
-  }),
-  z.object({
-    kind: z.literal("remember"),
-    message: z.string(),
-  }),
+  AutoReplySchema,
+  ReplyAfterSchema,
+  RememberSchema,
 ]);
 
 export const toolsInit = ({ sqlite }: Context) => sqlite`
@@ -87,3 +93,58 @@ export function replaceMessage(msg: TelegramBot.Message, template: string) {
     `@${msg.from?.username || msg.from?.first_name}`,
   );
 }
+
+function makeTool<T extends Tool>(tool: T): T {
+  return tool;
+}
+
+export const makeToolSet = (ctx: Context, msg: TelegramBot.Message) => ({
+  auto_reply: makeTool({
+    description:
+      "以后当收到匹配 {when} 正则表达式的消息时，自动回复 {message} 内容。正则表达式可以使用 $1, $2 等等来引用捕获组。",
+    inputSchema: AutoReplySchema,
+    strict: true,
+    async execute(input) {
+      await ctx.sqlite`
+        INSERT INTO execs (chat_id, value, created_at)
+        VALUES (${msg.chat.id}, ${JSON.stringify(input)}, ${Date.now()});
+      `;
+      return "ok";
+    },
+  }),
+  reply_after: makeTool({
+    description: "在 {timeout} 毫秒后回复一条消息，内容为 {message}。",
+    inputSchema: ReplyAfterSchema,
+    strict: true,
+    async execute(input) {
+      ctx.bot.sendMessage(msg.chat.id, `成功地注册了 reply_after`, {
+        reply_to_message_id: msg.message_id,
+      });
+      setTimeout(async () => {
+        void ctx.bot.sendMessage(
+          msg.chat.id,
+          await markdownToTelegramHtml(replaceMessage(msg, input.message)),
+          {
+            reply_to_message_id: msg.message_id,
+            parse_mode: "HTML",
+          },
+        );
+      }, input.timeout);
+    },
+  }),
+  remember: makeTool({
+    description: "记住一段信息，内容为 {message}。",
+    inputSchema: RememberSchema,
+    strict: true,
+    async execute(input) {
+      await ctx.sqlite`
+            INSERT INTO memories (chat_id, message, created_at)
+            VALUES (${msg.chat.id}, ${input.message}, ${Date.now()});
+        `;
+      ctx.bot.sendMessage(msg.chat.id, `记住了 ${input.message}`, {
+        reply_to_message_id: msg.message_id,
+      });
+      return "ok";
+    },
+  }),
+});

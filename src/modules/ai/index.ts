@@ -1,14 +1,12 @@
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { type ModelMessage, streamText } from "ai";
 import type TelegramBot from "node-telegram-bot-api";
-import z from "zod";
 import type { Context } from "@/lib/bot-proxy";
-import { createCacheRecord } from "@/lib/cache";
 import { safeJsonParseAsync } from "@/lib/json";
-import { extractExec, markdownToTelegramHtml } from "@/lib/markdown";
+import { markdownToTelegramHtml } from "@/lib/markdown";
 import {
-  aiSchema,
-  execSchema,
+  AutoReplySchema,
+  makeToolSet,
   PROMPT_TOOLS,
   replaceMessage,
   SYSTEM_PROMPT_DEFAULT,
@@ -22,7 +20,7 @@ export async function Ai(ctx: Context) {
 
   await toolsInit(ctx);
 
-  const execsCache = createCacheRecord(async (chatId: number) => {
+  const getExecs = async (chatId: number) => {
     const execsRaw: {
       id: number;
       chat_id: number;
@@ -31,78 +29,16 @@ export async function Ai(ctx: Context) {
     }[] = await sqlite`SELECT * FROM execs WHERE chat_id = ${chatId}`;
 
     return Promise.all(
-      execsRaw.map((x) => safeJsonParseAsync(execSchema, x.value)),
+      execsRaw.map((x) => safeJsonParseAsync(AutoReplySchema, x.value)),
     );
-  });
+  };
 
-  const memoriesCache = createCacheRecord(async (chatId: number) => {
+  const getMemories = async (chatId: number) => {
     const memories: { id: number; chat_id: number; message: string }[] =
       await sqlite`SELECT * FROM memories WHERE chat_id = ${chatId} ORDER BY created_at DESC LIMIT 10`;
 
     return memories;
-  });
-
-  async function registerCommand(msg: TelegramBot.Message, response: string) {
-    const execs = await extractExec(response);
-    return Promise.allSettled(
-      execs.map(async (x) => {
-        const parsed = await safeJsonParseAsync(aiSchema, x);
-
-        if (parsed.success) {
-          const exec = parsed.data;
-          switch (exec.kind) {
-            case "remember": {
-              await sqlite`
-                    INSERT INTO memories (chat_id, message, created_at)
-                    VALUES (${msg.chat.id}, ${exec.message}, ${Date.now()});
-                  `;
-              break;
-            }
-
-            case "auto_reply": {
-              await sqlite`
-                    INSERT INTO execs (chat_id, value, created_at)
-                    VALUES (${msg.chat.id}, ${x}, ${Date.now()});
-                  `;
-
-              execsCache(msg.chat.id).invalidate();
-              break;
-            }
-
-            case "reply_timeout": {
-              setTimeout(async () => {
-                void bot.sendMessage(
-                  msg.chat.id,
-                  await markdownToTelegramHtml(
-                    replaceMessage(msg, exec.message),
-                  ),
-                  {
-                    reply_to_message_id: msg.message_id,
-                    parse_mode: "HTML",
-                  },
-                );
-              }, exec.timeout);
-              break;
-            }
-          }
-
-          void bot.sendMessage(
-            msg.chat.id,
-            `成功地注册了一个命令：${exec.kind}`,
-            {
-              reply_to_message_id: msg.message_id,
-            },
-          );
-        } else {
-          void bot.sendMessage(
-            msg.chat.id,
-            `失败地注册了一个命令 ${x}，错误：${z.prettifyError(parsed.error)}`,
-            { reply_to_message_id: msg.message_id },
-          );
-        }
-      }),
-    );
-  }
+  };
 
   bot.onText(/^\/prompt(\s+?[\S\s]+)?/, async (msg, match) => {
     const newPrompt = match?.[1]?.trim();
@@ -122,7 +58,7 @@ export async function Ai(ctx: Context) {
   });
 
   bot.on("message", async (msg) => {
-    const execsArr = await execsCache(msg.chat.id).get();
+    const execsArr = await getExecs(msg.chat.id);
 
     for (const execRes of execsArr) {
       if (execRes.success) {
@@ -163,7 +99,7 @@ export async function Ai(ctx: Context) {
         { reply_to_message_id: msg.message_id },
       );
 
-      const memories = await memoriesCache(msg.chat.id).get();
+      const memories = await getMemories(msg.chat.id);
 
       function generateMessage(msg?: TelegramBot.Message): ModelMessage[] {
         if (!msg) return [];
@@ -193,7 +129,7 @@ export async function Ai(ctx: Context) {
         model: openrouter(config.model, {}), // or any model you prefer
         messages: [
           { role: "system", content: SYSTEM_PROMPT_DEFAULT },
-          { role: "system", content: PROMPT_TOOLS },
+          //   { role: "system", content: PROMPT_TOOLS },
           {
             role: "assistant",
             content: [
@@ -205,48 +141,102 @@ export async function Ai(ctx: Context) {
           },
           ...generateMessage(msg),
         ],
+        tools: makeToolSet(ctx, msg),
+        toolChoice: "auto",
         headers: {
           "X-Title": `Telegram Bot`,
         },
       });
 
-      let fullResponse = "";
-      let lastResponse = "";
-      let lastEditTime = Date.now() - 6000;
+      const state = {
+        aborted: false,
+        currentReasoning: "",
+        currentText: "",
+        currentTool: "",
+        historyTool: {} as Record<string, string>,
+        lastSentText: "",
+        lastEditTime: 0,
+      };
+
+      function generateTextToSend() {
+        let txt = "";
+        const reasoning = state.currentReasoning.trim();
+        if (reasoning && reasoning !== "[REDARTED]") {
+          txt += "> ";
+          txt += reasoning.replaceAll("\n", "\n> ");
+          txt += "\n\n";
+        }
+        txt += state.currentText;
+        if (state.currentTool) {
+          txt += "\n```json\n";
+          txt += state.historyTool[state.currentTool];
+          txt += "\n```";
+        }
+        return txt || "(...)";
+      }
 
       // Collect chunks
-      for await (const chunk of result.textStream) {
-        fullResponse += chunk;
-        console.debug(fullResponse);
+      for await (const chunk of result.fullStream) {
+        console.log(chunk);
+        switch (chunk.type) {
+          case "abort": {
+            state.aborted = true;
+            break;
+          }
+          case "reasoning-delta": {
+            state.currentReasoning += chunk.text;
+            break;
+          }
+          case "text-delta": {
+            state.currentText += chunk.text;
+            break;
+          }
+          case "tool-input-start": {
+            state.currentText += `\n(正在使用工具: ${chunk.toolName})`;
+            state.currentTool = chunk.toolName;
+            state.historyTool[chunk.toolName] = "";
+            break;
+          }
+          case "tool-input-delta": {
+            state.historyTool[state.currentTool] += chunk.delta;
+            break;
+          }
+          case "tool-input-end": {
+            state.currentTool = "";
+            break;
+          }
+          case "tool-call": {
+            break;
+          }
+        }
+
+        if (state.aborted) break;
+
         const now = Date.now();
+        const textToSend = generateTextToSend();
+
         if (
-          fullResponse.length - lastResponse.length >= 50 && // Send every 50 new characters
-          now - lastEditTime >= 6000 // Edit every 6 seconds
+          textToSend.length - state.lastSentText.length >= 50 && // Send every 50 new characters
+          now - state.lastEditTime >= 6000 // Edit every 6 seconds
         ) {
-          await bot.editMessageText(
-            await markdownToTelegramHtml(fullResponse),
-            {
-              chat_id: msg.chat.id,
-              message_id: sentMessage.message_id,
-              parse_mode: "HTML",
-            },
-          );
-          lastEditTime = now;
-          lastResponse = fullResponse;
+          await bot.editMessageText(await markdownToTelegramHtml(textToSend), {
+            chat_id: msg.chat.id,
+            message_id: sentMessage.message_id,
+            parse_mode: "HTML",
+          });
+          state.lastSentText = textToSend;
+          state.lastEditTime = now;
         }
       }
 
       // Final edit with complete response
-      const telegramHtml = await markdownToTelegramHtml(fullResponse);
+      const telegramHtml = await markdownToTelegramHtml(generateTextToSend());
 
-      await Promise.all([
-        registerCommand(msg, fullResponse),
-        bot.editMessageText(telegramHtml, {
-          chat_id: msg.chat.id,
-          message_id: sentMessage.message_id,
-          parse_mode: "HTML",
-        }),
-      ]);
+      await bot.editMessageText(telegramHtml, {
+        chat_id: msg.chat.id,
+        message_id: sentMessage.message_id,
+        parse_mode: "HTML",
+      });
     } catch (error) {
       console.error("Error generating response:", error);
       bot.sendMessage(

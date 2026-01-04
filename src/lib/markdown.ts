@@ -1,13 +1,13 @@
-import { unified, type Plugin } from "unified";
-import remarkParse from "remark-parse";
-import { visit } from "unist-util-visit";
 import type { Properties, Root } from "hast";
-import rehypeSanitize from "rehype-sanitize";
-import remarkGfm from "remark-gfm";
-import remarkRehype from "remark-rehype";
-import { h } from "hastscript";
 // @ts-expect-error
 import { toHtml } from "hast-util-to-html";
+import { h } from "hastscript";
+import rehypeSanitize from "rehype-sanitize";
+import remarkGfm from "remark-gfm";
+import remarkParse from "remark-parse";
+import remarkRehype from "remark-rehype";
+import { type Plugin, unified } from "unified";
+import { visit } from "unist-util-visit";
 
 const ALLOWED_TAGS = [
   "b",
