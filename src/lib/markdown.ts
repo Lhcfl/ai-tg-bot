@@ -2,6 +2,9 @@ import type { Properties, Root } from "hast";
 // @ts-expect-error
 import { toHtml } from "hast-util-to-html";
 import { h } from "hastscript";
+import type { Table } from "mdast";
+import { gfmTableToMarkdown } from "mdast-util-gfm-table";
+import { toMarkdown } from "mdast-util-to-markdown";
 import rehypeSanitize from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
@@ -24,6 +27,24 @@ const ALLOWED_TAGS = [
   "a",
   "blockquote",
 ];
+
+// Remark plugin to convert tables to markdown code blocks
+const remarkTableToCode: Plugin<[], Root> = () => (tree) =>
+  visit(tree, "table", (node: Table) => {
+    // Convert table back to markdown
+    const tableMarkdown = toMarkdown(node, {
+      extensions: [gfmTableToMarkdown()],
+    }).trim();
+
+    // Create a code node to replace the table
+    const codeNode = {
+      type: "code",
+      lang: "markdown",
+      value: tableMarkdown,
+    };
+
+    Object.assign(node, codeNode);
+  });
 
 // Rehype plugin to convert HTML to Telegram HTML
 const rehypeTelegramHtml: Plugin<[], Root> = () => (tree) =>
@@ -96,6 +117,7 @@ const rehypeTelegramHtml: Plugin<[], Root> = () => (tree) =>
 const processor = unified()
   .use(remarkParse)
   .use(remarkGfm)
+  .use(remarkTableToCode)
   .use(remarkRehype)
   .use(rehypeTelegramHtml)
   .use(rehypeSanitize, {
