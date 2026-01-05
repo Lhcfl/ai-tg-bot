@@ -112,6 +112,14 @@ export class TableBuilder<Schema extends SchemaDefinition> {
     return this;
   }
 
+  async transaction(fn: (tb: TableBuilder<Schema>) => Promise<void>) {
+    return await this.sql.transaction(async (tx) => {
+      const tb = new TableBuilder(this.tableName, this.schema);
+      tb.sql = tx;
+      await fn(tb);
+    });
+  }
+
   /**
    * Initialize the table - creates if not exists
    */

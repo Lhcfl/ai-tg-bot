@@ -22,7 +22,7 @@ import {
 export async function Ai(ctx: Context) {
   console.log("[AI] Initializing AI Database...");
 
-  const { bot, me, config } = ctx;
+  const { bot, me, config, sqlite } = ctx;
 
   await toolsInit(ctx);
 
@@ -70,11 +70,13 @@ export async function Ai(ctx: Context) {
       let text = "";
 
       if (newPrompt) {
-        await promptsTable.deleteWhere`chat_id = ${msg.chat.id}`;
-        await promptsTable.insert({
-          chat_id: msg.chat.id,
-          value: newPrompt,
-          created_at: Date.now(),
+        await promptsTable.transaction(async (tb) => {
+          await tb.deleteWhere`chat_id = ${msg.chat.id}`;
+          await tb.insert({
+            chat_id: msg.chat.id,
+            value: newPrompt,
+            created_at: Date.now(),
+          });
         });
 
         text = `已成功将 prompt 更新为：${newPrompt}`;

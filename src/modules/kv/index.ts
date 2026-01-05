@@ -58,11 +58,13 @@ export async function setChatKV(
   key: string,
   value: string,
 ): Promise<void> {
-  await chatKVs.deleteWhere`chat_id = ${chatId} AND key = ${key}`;
-  await chatKVs.insert({
-    chat_id: chatId,
-    key,
-    value,
+  await chatKVs.transaction(async (tb) => {
+    await tb.deleteWhere`chat_id = ${chatId} AND key = ${key}`;
+    await tb.insert({
+      chat_id: chatId,
+      key,
+      value,
+    });
   });
 }
 
