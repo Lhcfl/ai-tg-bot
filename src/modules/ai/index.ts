@@ -383,9 +383,10 @@ ${limit > 0 ? `📊 使用率：${((usage / limit) * 100).toFixed(2)}%` : ""}
       enable_auto_reply,
       message_window,
       model = config.model,
+      reasoning_effort = "medium",
     } = await getChatKVs(
       msg.chat.id,
-      ["enable_auto_reply", "message_window", "model"],
+      ["enable_auto_reply", "message_window", "model", "reasoning_effort"],
       {
         enable_auto_reply: (customEnable) => {
           if (customEnable && customEnable !== "true") {
@@ -492,7 +493,9 @@ ${limit > 0 ? `📊 使用率：${((usage / limit) * 100).toFixed(2)}%` : ""}
 
       // Use AI to generate response with streaming
       const result = streamText({
-        model: openrouter(model),
+        model: openrouter(model, {
+          reasoning: { effort: reasoning_effort as never },
+        }),
         messages: [
           { role: "system", content: prompt },
           {
