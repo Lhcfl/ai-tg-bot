@@ -188,40 +188,6 @@ ${limit > 0 ? `📊 使用率：${((usage / limit) * 100).toFixed(2)}%` : ""}
   ctx.command(
     {
       command: "listexecs",
-      description: "列出当前聊天的所有自动回复规则",
-    },
-    async (msg) => {
-      const execs = await getExecs(msg.chat.id);
-
-      if (execs.length === 0) {
-        await bot.sendMessage(msg.chat.id, "当前没有自动回复规则。", {
-          reply_to_message_id: msg.message_id,
-        });
-        return;
-      }
-
-      const lines = execs.map((x) =>
-        x.success
-          ? `- ✔️ \`${x.data.when}\` ➡️ ${x.data.message}`
-          : `- ✖️ (${z.prettifyError(x.error)})`,
-      );
-
-      await bot.sendMessage(
-        msg.chat.id,
-        await markdownToTelegramHtml(
-          `当前的自动回复规则有：\n\n${lines.join("\n")}`,
-        ),
-        {
-          reply_to_message_id: msg.message_id,
-          parse_mode: "HTML",
-        },
-      );
-    },
-  );
-
-  ctx.command(
-    {
-      command: "listautoreplies",
       description: "列出当前聊天的所有自动回复规则（显示 ID）",
     },
     async (msg) => {
@@ -243,7 +209,7 @@ ${limit > 0 ? `📊 使用率：${((usage / limit) * 100).toFixed(2)}%` : ""}
       await bot.sendMessage(
         msg.chat.id,
         await markdownToTelegramHtml(
-          `当前的自动回复规则有：\n\n${lines.join("\n")}\n\n💡 使用 /removeautoreply <id> 来删除规则`,
+          `当前的自动回复规则有：\n\n${lines.join("\n")}\n\n💡 使用 /removeexec <id> 来删除规则`,
         ),
         {
           reply_to_message_id: msg.message_id,
@@ -255,8 +221,8 @@ ${limit > 0 ? `📊 使用率：${((usage / limit) * 100).toFixed(2)}%` : ""}
 
   ctx.command(
     {
-      command: "removeautoreply",
-      description: "[id] 删除指定 ID 的自动回复规则",
+      command: "removeexec",
+      description: "[id] 删除指定 ID 的自动回复规则，id 为 all 时删除所有规则",
     },
     async (msg, idStr) => {
       if (!idStr) {
@@ -272,6 +238,14 @@ ${limit > 0 ? `📊 使用率：${((usage / limit) * 100).toFixed(2)}%` : ""}
 
       const id = parseInt(idStr, 10);
       if (Number.isNaN(id)) {
+        if (idStr === "all") {
+          await execsTable.deleteWhere`chat_id = ${msg.chat.id}`;
+
+          await bot.sendMessage(msg.chat.id, `已成功删除所有自动回复规则。`, {
+            reply_to_message_id: msg.message_id,
+          });
+          return;
+        }
         await bot.sendMessage(msg.chat.id, "ID 必须是一个数字。", {
           reply_to_message_id: msg.message_id,
         });
@@ -298,36 +272,6 @@ ${limit > 0 ? `📊 使用率：${((usage / limit) * 100).toFixed(2)}%` : ""}
       await bot.sendMessage(
         msg.chat.id,
         `已成功删除 ID 为 ${id} 的自动回复规则。`,
-        {
-          reply_to_message_id: msg.message_id,
-        },
-      );
-    },
-  );
-
-  ctx.command(
-    {
-      command: "memories",
-      description: "列出当前聊天的所有记忆",
-    },
-    async (msg) => {
-      const memories = await getMemories(msg.chat.id);
-
-      if (memories.length === 0) {
-        await bot.sendMessage(msg.chat.id, "当前没有记忆。", {
-          reply_to_message_id: msg.message_id,
-        });
-        return;
-      }
-
-      const lines = memories.map(
-        (x) =>
-          `- (${new Date(x.created_at).toLocaleDateString()}) ${x.message}`,
-      );
-
-      await bot.sendMessage(
-        msg.chat.id,
-        `当前的记忆有：\n\n${lines.join("\n")}`,
         {
           reply_to_message_id: msg.message_id,
         },
