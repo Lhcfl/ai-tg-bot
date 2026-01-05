@@ -36,6 +36,17 @@ export async function Ai(ctx: Context) {
     );
   };
 
+  const getExecsWithId = async (chatId: number) => {
+    const execsRaw = await execsTable.where`chat_id = ${chatId}`;
+
+    return Promise.all(
+      execsRaw.map(async (x) => ({
+        id: x.id,
+        parsed: await safeJsonParseAsync(AutoReplySchema, x.value),
+      })),
+    );
+  };
+
   const getMemories = async (chatId: number) => {
     const memories =
       await memoriesTable.where`chat_id = ${chatId} ORDER BY created_at DESC LIMIT 50`;
@@ -210,6 +221,92 @@ ${limit > 0 ? `📊 使用率：${((usage / limit) * 100).toFixed(2)}%` : ""}
 
   ctx.command(
     {
+      command: "listautoreplies",
+      description: "列出当前聊天的所有自动回复规则（显示 ID）",
+    },
+    async (msg) => {
+      const execs = await getExecsWithId(msg.chat.id);
+
+      if (execs.length === 0) {
+        await bot.sendMessage(msg.chat.id, "当前没有自动回复规则。", {
+          reply_to_message_id: msg.message_id,
+        });
+        return;
+      }
+
+      const lines = execs.map((x) =>
+        x.parsed.success
+          ? `- ID: ${x.id} | \`${x.parsed.data.when}\` ➡️ ${x.parsed.data.message}`
+          : `- ID: ${x.id} | ✖️ (${z.prettifyError(x.parsed.error)})`,
+      );
+
+      await bot.sendMessage(
+        msg.chat.id,
+        await markdownToTelegramHtml(
+          `当前的自动回复规则有：\n\n${lines.join("\n")}\n\n💡 使用 /removeautoreply <id> 来删除规则`,
+        ),
+        {
+          reply_to_message_id: msg.message_id,
+          parse_mode: "HTML",
+        },
+      );
+    },
+  );
+
+  ctx.command(
+    {
+      command: "removeautoreply",
+      description: "[id] 删除指定 ID 的自动回复规则",
+    },
+    async (msg, idStr) => {
+      if (!idStr) {
+        await bot.sendMessage(
+          msg.chat.id,
+          "请提供要删除的自动回复规则 ID。\n使用 /listautoreplies 查看所有规则。",
+          {
+            reply_to_message_id: msg.message_id,
+          },
+        );
+        return;
+      }
+
+      const id = parseInt(idStr, 10);
+      if (Number.isNaN(id)) {
+        await bot.sendMessage(msg.chat.id, "ID 必须是一个数字。", {
+          reply_to_message_id: msg.message_id,
+        });
+        return;
+      }
+
+      // Verify the exec belongs to this chat
+      const exec =
+        await execsTable.where`id = ${id} AND chat_id = ${msg.chat.id}`;
+
+      if (exec.length === 0) {
+        await bot.sendMessage(
+          msg.chat.id,
+          `找不到 ID 为 ${id} 的自动回复规则。`,
+          {
+            reply_to_message_id: msg.message_id,
+          },
+        );
+        return;
+      }
+
+      await execsTable.deleteWhere`id = ${id}`;
+
+      await bot.sendMessage(
+        msg.chat.id,
+        `已成功删除 ID 为 ${id} 的自动回复规则。`,
+        {
+          reply_to_message_id: msg.message_id,
+        },
+      );
+    },
+  );
+
+  ctx.command(
+    {
       command: "memories",
       description: "列出当前聊天的所有记忆",
     },
@@ -235,6 +332,83 @@ ${limit > 0 ? `📊 使用率：${((usage / limit) * 100).toFixed(2)}%` : ""}
           reply_to_message_id: msg.message_id,
         },
       );
+    },
+  );
+
+  ctx.command(
+    {
+      command: "listmemories",
+      description: "列出当前聊天的所有记忆（显示 ID）",
+    },
+    async (msg) => {
+      const memories = await getMemories(msg.chat.id);
+
+      if (memories.length === 0) {
+        await bot.sendMessage(msg.chat.id, "当前没有记忆。", {
+          reply_to_message_id: msg.message_id,
+        });
+        return;
+      }
+
+      const lines = memories.map(
+        (x) =>
+          `- ID: ${x.id} | (${new Date(x.created_at).toLocaleDateString()}) ${x.message}`,
+      );
+
+      await bot.sendMessage(
+        msg.chat.id,
+        await markdownToTelegramHtml(
+          `当前的记忆有：\n\n${lines.join("\n")}\n\n💡 使用 /removememory <id> 来删除记忆`,
+        ),
+        {
+          reply_to_message_id: msg.message_id,
+          parse_mode: "HTML",
+        },
+      );
+    },
+  );
+
+  ctx.command(
+    {
+      command: "removememory",
+      description: "[id] 删除指定 ID 的记忆",
+    },
+    async (msg, idStr) => {
+      if (!idStr) {
+        await bot.sendMessage(
+          msg.chat.id,
+          "请提供要删除的记忆 ID。\n使用 /listmemories 查看所有记忆。",
+          {
+            reply_to_message_id: msg.message_id,
+          },
+        );
+        return;
+      }
+
+      const id = parseInt(idStr, 10);
+      if (Number.isNaN(id)) {
+        await bot.sendMessage(msg.chat.id, "ID 必须是一个数字。", {
+          reply_to_message_id: msg.message_id,
+        });
+        return;
+      }
+
+      // Verify the memory belongs to this chat
+      const memory =
+        await memoriesTable.where`id = ${id} AND chat_id = ${msg.chat.id}`;
+
+      if (memory.length === 0) {
+        await bot.sendMessage(msg.chat.id, `找不到 ID 为 ${id} 的记忆。`, {
+          reply_to_message_id: msg.message_id,
+        });
+        return;
+      }
+
+      await memoriesTable.deleteWhere`id = ${id}`;
+
+      await bot.sendMessage(msg.chat.id, `已成功删除 ID 为 ${id} 的记忆。`, {
+        reply_to_message_id: msg.message_id,
+      });
     },
   );
 
