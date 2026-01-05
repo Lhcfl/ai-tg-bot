@@ -25,7 +25,7 @@ export async function Ai(ctx: Context) {
 
   await toolsInit(ctx);
 
-  // Create message cache instance
+  // Create message cache instance with global max window
   const messageCache = createMessageCache(config.max_message_window);
 
   const getExecs = async (chatId: number) => {
@@ -46,6 +46,18 @@ export async function Ai(ctx: Context) {
   const getPrompt = async (chatId: number) => {
     const res = await promptsTable.where`chat_id = ${chatId}`;
     return res.at(0)?.value ?? SYSTEM_PROMPT_DEFAULT;
+  };
+
+  const getMessageWindow = async (chatId: number): Promise<number> => {
+    const customWindow = await getChatKV(chatId, "message_window");
+    if (customWindow) {
+      const parsed = parseInt(customWindow, 10);
+      if (!Number.isNaN(parsed) && parsed > 0) {
+        // Ensure it doesn't exceed the global max
+        return Math.min(parsed, config.max_message_window);
+      }
+    }
+    return config.max_message_window;
   };
 
   ctx.command(
@@ -251,11 +263,15 @@ export async function Ai(ctx: Context) {
 
       const memories = await getMemories(msg.chat.id);
       const prompt = await getPrompt(msg.chat.id);
+      const messageWindow = await getMessageWindow(msg.chat.id);
 
       console.log("[AI] Using prompt:", prompt);
+      console.log("[AI] Using message window:", messageWindow);
 
-      // Get cached messages for context
-      const cachedMessages = messageCache.getMessages(msg.chat.id);
+      // Get cached messages for context with the configured window size
+      const cachedMessages = messageCache
+        .getMessages(msg.chat.id)
+        .slice(-messageWindow);
       const contextMessages: ModelMessage[] = cachedMessages.map(
         (cachedMsg) => {
           if (cachedMsg.from_id === me.id) {

@@ -1,1 +1,2 @@
 model = "设置 openrouter AI 使用的模型名称，例如 `x-ai/grok-4.1-fast`"
+message_window = "设置当前聊天的消息缓存窗口大小，例如 `50`。不超过配置文件中的 max_message_window"
