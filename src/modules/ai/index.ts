@@ -386,6 +386,7 @@ ${limit > 0 ? `📊 使用率：${((usage / limit) * 100).toFixed(2)}%` : ""}
       message_window,
       model = config.model,
       reasoning_effort = "medium",
+      show_reasoning,
     } = await getChatKVs(
       msg.chat.id,
       [
@@ -518,23 +519,27 @@ ${limit > 0 ? `📊 使用率：${((usage / limit) * 100).toFixed(2)}%` : ""}
         },
       });
 
-      await streamToTelegramText(result, async (text, final) => {
-        await bot.editMessageText(await markdownToTelegramHtml(text), {
-          chat_id: msg.chat.id,
-          message_id: sentMessage.message_id,
-          parse_mode: "HTML",
-        });
-
-        if (final) {
-          messageCache.addMessage(msg.chat.id, {
-            ...sentMessage,
+      await streamToTelegramText(
+        result,
+        { show_reasoning },
+        async (text, final) => {
+          await bot.editMessageText(await markdownToTelegramHtml(text), {
+            chat_id: msg.chat.id,
             message_id: sentMessage.message_id,
-            date: Math.floor(Date.now() / 1000),
-            from: me,
-            text,
+            parse_mode: "HTML",
           });
-        }
-      });
+
+          if (final) {
+            messageCache.addMessage(msg.chat.id, {
+              ...sentMessage,
+              message_id: sentMessage.message_id,
+              date: Math.floor(Date.now() / 1000),
+              from: me,
+              text,
+            });
+          }
+        },
+      );
     } catch (error) {
       console.error("Error generating response:", error);
       bot.sendMessage(

@@ -4,7 +4,11 @@ import { YAML } from "bun";
 export async function streamToTelegramText<
   // biome-ignore lint/suspicious/noExplicitAny: 类型体操
   S extends StreamTextResult<any, any>,
->(stream: S, onUpdate: (text: string, final: boolean) => Promise<void>) {
+>(
+  stream: S,
+  config: { show_reasoning?: boolean },
+  onUpdate: (text: string, final: boolean) => Promise<void>,
+) {
   let aborted = false;
   let currentReasoning = "";
   let currentText = "";
@@ -16,7 +20,7 @@ export async function streamToTelegramText<
   function generateTextToSend() {
     let txt = "";
     const reasoning = currentReasoning.trim();
-    if (reasoning && reasoning !== "[REDACTED]") {
+    if (reasoning && reasoning !== "[REDACTED]" && config.show_reasoning) {
       txt += "> ";
       txt += reasoning.replaceAll("\n", "\n> ");
       txt += "\n\n";
