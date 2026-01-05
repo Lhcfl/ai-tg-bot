@@ -6,3 +6,6 @@ openrouter_api_key = "your_openrouter_api_key_here"
 model = "openai/gpt-3.5-turbo"
 app_name = "Telegram Bot"
 chat_allow_list = [-100123456789]
+
+# Maximum number of messages to keep in context window (default: 50)
+max_message_window = 50

@@ -5,6 +5,7 @@ import z from "zod";
 import type { Context } from "@/lib/bot-proxy";
 import { safeJsonParseAsync } from "@/lib/json";
 import { markdownToTelegramHtml } from "@/lib/markdown";
+import { createMessageCache } from "@/lib/message-cache";
 import { getChatKV } from "../kv";
 import {
   AutoReplySchema,
@@ -23,6 +24,9 @@ export async function Ai(ctx: Context) {
   const { bot, me, config } = ctx;
 
   await toolsInit(ctx);
+
+  // Create message cache instance
+  const messageCache = createMessageCache(config.max_message_window);
 
   const getExecs = async (chatId: number) => {
     const execsRaw = await execsTable.where`chat_id = ${chatId}`;
@@ -169,11 +173,25 @@ export async function Ai(ctx: Context) {
 
   /** AI */
   bot.on("message", async (msg) => {
-    if (!msg.from || !msg.text) return;
+    if (!msg.from) return;
 
+    if (!msg.text) {
+      messageCache.addMessage(msg.chat.id, {
+        ...msg,
+        text:
+          (msg.media_group_id ? "[媒体]" : "[非文本消息]") +
+          (msg.caption ? ` 文字说明：${msg.caption}` : ""),
+      });
+      return;
+    }
+
+    // Don't cache commands
     if (msg.text.startsWith("/")) {
       return;
     }
+
+    // Cache user message (non-command messages only)
+    messageCache.addMessage(msg.chat.id, msg);
 
     const condition =
       msg.text.split(" ").includes(`@${me.username}`) ||
@@ -236,28 +254,28 @@ export async function Ai(ctx: Context) {
 
       console.log("[AI] Using prompt:", prompt);
 
-      function generateMessage(msg?: TelegramBot.Message): ModelMessage[] {
-        if (!msg) return [];
-        if (!msg.from) return [];
-        const from = msg.from;
-        if (from.id === me.id) {
-          return [
-            ...generateMessage(msg.reply_to_message),
-            {
-              role: "assistant",
-              content: `${msg.text}`,
-            },
-          ];
-        } else {
-          return [
-            ...generateMessage(msg.reply_to_message),
-            {
-              role: "user",
-              content: `@${from.username} (${from.first_name} ${from.last_name || ""}) 发送了一条消息：${msg.text}`,
-            },
-          ];
-        }
-      }
+      // Get cached messages for context
+      const cachedMessages = messageCache.getMessages(msg.chat.id);
+      const contextMessages: ModelMessage[] = cachedMessages.map(
+        (cachedMsg) => {
+          if (cachedMsg.from_id === me.id) {
+            return {
+              role: "assistant" as const,
+              content: cachedMsg.text,
+            };
+          } else {
+            const username = cachedMsg.from_username
+              ? `@${cachedMsg.from_username}`
+              : cachedMsg.from_first_name;
+            const fullName =
+              `${cachedMsg.from_first_name} ${cachedMsg.from_last_name || ""}`.trim();
+            return {
+              role: "user" as const,
+              content: `${username} (${fullName}) 发送了一条消息：${cachedMsg.text}`,
+            };
+          }
+        },
+      );
 
       // Use AI to generate response with streaming
       const result = streamText({
@@ -275,7 +293,7 @@ export async function Ai(ctx: Context) {
               ...memories.map((x) => `- ${x.message}`),
             ].join("\n"),
           },
-          ...generateMessage(msg),
+          ...contextMessages,
         ],
         tools: makeToolSet(ctx, msg),
         toolChoice: "auto",
@@ -374,6 +392,18 @@ export async function Ai(ctx: Context) {
         message_id: sentMessage.message_id,
         parse_mode: "HTML",
       });
+
+      // Cache the AI's response
+      const finalText = state.currentText;
+      if (finalText) {
+        messageCache.addMessage(msg.chat.id, {
+          message_id: sentMessage.message_id,
+          chat: msg.chat,
+          date: Math.floor(Date.now() / 1000),
+          from: me,
+          text: finalText,
+        } as TelegramBot.Message);
+      }
     } catch (error) {
       console.error("Error generating response:", error);
       bot.sendMessage(

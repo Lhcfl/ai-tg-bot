@@ -7,6 +7,7 @@ const configSchema = z.object({
   model: z.string().default("openai/gpt-3.5-turbo"),
   app_name: z.string().default("Telegram Bot"),
   chat_allow_list: z.array(z.number()).optional(),
+  max_message_window: z.number().int().positive().default(50),
 });
 
 export const readConfig = async () => {

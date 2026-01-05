@@ -1,6 +1,5 @@
 import { SQL } from "bun";
 import TelegramBot, { type BotCommand } from "node-telegram-bot-api";
-import { ms } from "zod/locales";
 import type { Config } from "./config";
 
 const sqlite = new SQL({
@@ -94,7 +93,12 @@ export class Context {
 
 export async function mkBot(config: Config) {
   const bot = new Proxy(
-    new TelegramBot(config.telegram_bot_token, { polling: true }),
+    new TelegramBot(config.telegram_bot_token, {
+      polling: {
+        interval: 10000,
+        autoStart: false,
+      },
+    }),
     {
       get(target, prop) {
         const val = target[prop as keyof TelegramBot];
@@ -127,6 +131,20 @@ export async function mkBot(config: Config) {
   // Get bot info
   const me = await bot.getMe();
   console.log(`Bot started: @${me.username}`);
+
+  // discard initial updates to avoid processing old messages
+  const updates = await bot.getUpdates();
+  if (updates.length > 1) {
+    console.log(
+      `Discarding ${updates.length} pending updates to avoid processing old messages...`,
+    );
+    const lastUpdate = updates[updates.length - 1];
+    await bot.getUpdates({
+      offset: lastUpdate ? lastUpdate.update_id + 1 : undefined,
+    });
+  }
+
+  bot.startPolling();
 
   return new Context(me, bot, config);
 }
