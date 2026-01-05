@@ -165,6 +165,11 @@ ${limit > 0 ? `📊 使用率：${((usage / limit) * 100).toFixed(2)}%` : ""}
 
   /** AUTO REPLY */
   bot.on("message", async (msg) => {
+    const enableAutoReply = await getChatKV(msg.chat.id, "enable_auto_reply");
+    if (enableAutoReply && enableAutoReply !== "true") {
+      return;
+    }
+
     const execsArr = await getExecs(msg.chat.id);
 
     for (const execRes of execsArr) {
@@ -387,6 +392,11 @@ ${limit > 0 ? `📊 使用率：${((usage / limit) * 100).toFixed(2)}%` : ""}
     });
 
     if (!condition) {
+      const enableAutoReply = await getChatKV(msg.chat.id, "enable_auto_reply");
+      if (enableAutoReply && enableAutoReply !== "true") {
+        return;
+      }
+
       const weakerCondition = msg.text.includes("什么");
       if (!weakerCondition || Math.random() < 0.5) {
         return;
