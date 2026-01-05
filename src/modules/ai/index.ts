@@ -97,6 +97,61 @@ export async function Ai(ctx: Context) {
     },
   );
 
+  ctx.command(
+    {
+      command: "usage",
+      description: "查看当前 API key 的使用统计和费用",
+    },
+    async (msg) => {
+      try {
+        const response = await fetch("https://openrouter.ai/api/v1/auth/key", {
+          headers: {
+            Authorization: `Bearer ${config.openrouter_api_key}`,
+          },
+        });
+
+        if (!response.ok) {
+          await bot.sendMessage(
+            msg.chat.id,
+            "获取使用统计失败，请检查 API 密钥是否有效。",
+            { reply_to_message_id: msg.message_id },
+          );
+          return;
+        }
+
+        const data = (await response.json()) as {
+          data: {
+            limit?: number;
+            usage?: number;
+            credits?: number;
+          };
+        };
+
+        const usage = data.data.usage ?? 0;
+        const limit = data.data.limit ?? 0;
+        const credits = data.data.credits ?? 0;
+
+        const usageText = `
+📊 API 使用统计：
+━━━━━━━━━━━━━━━━
+💰 剩余额度：$${credits.toFixed(4)}
+💸 已花费：$${usage.toFixed(4)}
+📈 月度限额：$${limit.toFixed(4)}
+${limit > 0 ? `📊 使用率：${((usage / limit) * 100).toFixed(2)}%` : ""}
+        `.trim();
+
+        await bot.sendMessage(msg.chat.id, usageText, {
+          reply_to_message_id: msg.message_id,
+        });
+      } catch (error) {
+        console.error("Error fetching usage:", error);
+        await bot.sendMessage(msg.chat.id, "获取使用统计时出错，请稍后重试。", {
+          reply_to_message_id: msg.message_id,
+        });
+      }
+    },
+  );
+
   /** AUTO REPLY */
   bot.on("message", async (msg) => {
     const execsArr = await getExecs(msg.chat.id);
