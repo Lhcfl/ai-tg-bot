@@ -1,12 +1,12 @@
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { generateText, type ModelMessage, streamText } from "ai";
-import type TelegramBot from "node-telegram-bot-api";
 import z from "zod";
 import type { Context } from "@/lib/bot-proxy";
 import { safeJsonParseAsync } from "@/lib/json";
 import { markdownToTelegramHtml } from "@/lib/markdown";
 import { createMessageCache } from "@/lib/message-cache";
 import { getChatKV } from "../kv";
+import { streamToTelegramText } from "./stream";
 import {
   AutoReplySchema,
   execsTable,
@@ -455,6 +455,7 @@ ${limit > 0 ? `📊 使用率：${((usage / limit) * 100).toFixed(2)}%` : ""}
       const cachedMessages = messageCache
         .getMessages(msg.chat.id)
         .slice(-messageWindow);
+
       const contextMessages: ModelMessage[] = cachedMessages.map(
         (cachedMsg) => {
           if (cachedMsg.from_id === me.id) {
@@ -502,107 +503,23 @@ ${limit > 0 ? `📊 使用率：${((usage / limit) * 100).toFixed(2)}%` : ""}
         },
       });
 
-      const state = {
-        aborted: false,
-        currentReasoning: "",
-        currentText: "",
-        currentTool: "",
-        historyTool: {} as Record<string, string>,
-        lastSentText: "",
-        lastEditTime: 0,
-      };
-
-      function generateTextToSend() {
-        let txt = "";
-        const reasoning = state.currentReasoning.trim();
-        if (reasoning && reasoning !== "[REDACTED]") {
-          txt += "> ";
-          txt += reasoning.replaceAll("\n", "\n> ");
-          txt += "\n\n";
-        }
-        txt += state.currentText;
-        if (state.currentTool) {
-          txt += "\n```json\n";
-          txt += state.historyTool[state.currentTool];
-          txt += "\n```";
-        }
-        return txt || "(...)";
-      }
-
-      // Collect chunks
-      for await (const chunk of result.fullStream) {
-        console.log(chunk);
-        switch (chunk.type) {
-          case "abort": {
-            state.aborted = true;
-            break;
-          }
-          case "reasoning-delta": {
-            state.currentReasoning += chunk.text;
-            break;
-          }
-          case "text-delta": {
-            state.currentText += chunk.text;
-            break;
-          }
-          case "tool-input-start": {
-            state.currentText += `\n(正在使用工具: ${chunk.toolName})`;
-            state.currentTool = chunk.toolName;
-            state.historyTool[chunk.toolName] = "";
-            break;
-          }
-          case "tool-input-delta": {
-            state.historyTool[state.currentTool] += chunk.delta;
-            break;
-          }
-          case "tool-input-end": {
-            state.currentTool = "";
-            break;
-          }
-          case "tool-call": {
-            break;
-          }
-        }
-
-        if (state.aborted) break;
-
-        const now = Date.now();
-        const textToSend = generateTextToSend();
-
-        if (
-          textToSend.length - state.lastSentText.length >= 50 && // Send every 50 new characters
-          now - state.lastEditTime >= 6000 // Edit every 6 seconds
-        ) {
-          await bot.editMessageText(await markdownToTelegramHtml(textToSend), {
-            chat_id: msg.chat.id,
-            message_id: sentMessage.message_id,
-            parse_mode: "HTML",
-          });
-          state.lastSentText = textToSend;
-          state.lastEditTime = now;
-        }
-      }
-
-      // Final edit with complete response
-      const telegramHtml = await markdownToTelegramHtml(generateTextToSend());
-
-      await bot.editMessageText(telegramHtml, {
-        chat_id: msg.chat.id,
-        message_id: sentMessage.message_id,
-        parse_mode: "HTML",
-      });
-
-      // Cache the AI's response
-      const finalText = state.currentText;
-      if (finalText) {
-        messageCache.addMessage(msg.chat.id, {
+      await streamToTelegramText(result, async (text, final) => {
+        await bot.editMessageText(await markdownToTelegramHtml(text), {
+          chat_id: msg.chat.id,
           message_id: sentMessage.message_id,
-          chat: msg.chat,
-          date: Math.floor(Date.now() / 1000),
-          from: me,
-          text: finalText,
-        } as TelegramBot.Message);
-      }
+          parse_mode: "HTML",
+        });
+
+        if (final) {
+          messageCache.addMessage(msg.chat.id, {
+            ...sentMessage,
+            message_id: sentMessage.message_id,
+            date: Math.floor(Date.now() / 1000),
+            from: me,
+            text,
+          });
+        }
+      });
     } catch (error) {
       console.error("Error generating response:", error);
       bot.sendMessage(
