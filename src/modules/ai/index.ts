@@ -5,6 +5,7 @@ import type { Context } from "@/lib/bot-proxy";
 import { safeJsonParseAsync } from "@/lib/json";
 import { markdownToTelegramHtml } from "@/lib/markdown";
 import { createMessageCache } from "@/lib/message-cache";
+import { v } from "@/lib/str";
 import { getChatKV, getChatKVs } from "../kv";
 import { streamToTelegramText } from "./stream";
 import {
@@ -365,6 +366,7 @@ ${limit > 0 ? `📊 使用率：${((usage / limit) * 100).toFixed(2)}%` : ""}
 
     // Don't cache commands
     if (msg.text.startsWith("/")) {
+      console.debug("received a command:", msg.text);
       return;
     }
 
@@ -386,14 +388,16 @@ ${limit > 0 ? `📊 使用率：${((usage / limit) * 100).toFixed(2)}%` : ""}
       reasoning_effort = "medium",
     } = await getChatKVs(
       msg.chat.id,
-      ["enable_auto_reply", "message_window", "model", "reasoning_effort"],
+      [
+        "enable_auto_reply",
+        "message_window",
+        "model",
+        "reasoning_effort",
+        "show_reasoning",
+      ] as const,
       {
-        enable_auto_reply: (customEnable) => {
-          if (customEnable && customEnable !== "true") {
-            return false;
-          }
-          return true;
-        },
+        show_reasoning: v.boolean(true),
+        enable_auto_reply: v.boolean(true),
         message_window: (customWindow) => {
           if (customWindow) {
             const parsed = parseInt(customWindow, 10);
@@ -461,9 +465,6 @@ ${limit > 0 ? `📊 使用率：${((usage / limit) * 100).toFixed(2)}%` : ""}
 
       const memories = await getMemories(msg.chat.id);
       const prompt = await getPrompt(msg.chat.id);
-
-      console.log("[AI] Using prompt:", prompt);
-      console.log("[AI] Using message window:", message_window);
 
       // Get cached messages for context with the configured window size
       const cachedMessages = messageCache

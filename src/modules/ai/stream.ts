@@ -1,4 +1,5 @@
 import type { StreamTextResult } from "ai";
+import { YAML } from "bun";
 
 export async function streamToTelegramText<
   // biome-ignore lint/suspicious/noExplicitAny: 类型体操
@@ -31,7 +32,6 @@ export async function streamToTelegramText<
 
   // Collect chunks
   for await (const chunk of stream.fullStream) {
-    console.log(chunk);
     switch (chunk.type) {
       case "abort": {
         aborted = true;
@@ -61,6 +61,14 @@ export async function streamToTelegramText<
       }
       case "tool-call": {
         break;
+      }
+      case "start-step": {
+        console.log(`--- SHOWING REQUEST ---`);
+        console.log(YAML.stringify(chunk.request, null, 2));
+        break;
+      }
+      default: {
+        console.log(chunk);
       }
     }
 
