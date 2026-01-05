@@ -22,6 +22,37 @@ export async function getChatKV(
   return res.at(0)?.value ?? null;
 }
 
+export async function getChatKVs<
+  Ks extends string[],
+  Mapp extends { [K in Ks[number]]?: (val: string | undefined) => unknown },
+>(chatId: number, keys: Ks, mapper?: Mapp) {
+  const mapp = mapper || ({} as Mapp);
+
+  const res =
+    await chatKVs.where`chat_id = ${chatId} AND key IN ${chatKVs.sql(keys)}`;
+
+  const firstMap = Object.fromEntries(
+    res.map((kv) => [kv.key, kv.value]),
+  ) as Record<string, string>;
+
+  return Object.fromEntries(
+    keys.map((key) => [
+      key,
+      key in mapp
+        ? (mapp as Record<string, (val: string | undefined) => unknown>)[key]?.(
+            firstMap[key],
+          )
+        : firstMap[key],
+    ]),
+  ) as {
+    [K in keyof Mapp]: Mapp[K] extends undefined
+      ? string | undefined
+      : ReturnType<NonNullable<Mapp[K]>>;
+  } & {
+    [K in Exclude<Ks[number], keyof Mapp>]?: string;
+  };
+}
+
 export async function setChatKV(
   chatId: number,
   key: string,

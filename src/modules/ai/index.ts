@@ -5,7 +5,7 @@ import type { Context } from "@/lib/bot-proxy";
 import { safeJsonParseAsync } from "@/lib/json";
 import { markdownToTelegramHtml } from "@/lib/markdown";
 import { createMessageCache } from "@/lib/message-cache";
-import { getChatKV } from "../kv";
+import { getChatKV, getChatKVs } from "../kv";
 import { streamToTelegramText } from "./stream";
 import {
   AutoReplySchema,
@@ -57,18 +57,6 @@ export async function Ai(ctx: Context) {
   const getPrompt = async (chatId: number) => {
     const res = await promptsTable.where`chat_id = ${chatId}`;
     return res.at(0)?.value ?? SYSTEM_PROMPT_DEFAULT;
-  };
-
-  const getMessageWindow = async (chatId: number): Promise<number> => {
-    const customWindow = await getChatKV(chatId, "message_window");
-    if (customWindow) {
-      const parsed = parseInt(customWindow, 10);
-      if (!Number.isNaN(parsed) && parsed > 0) {
-        // Ensure it doesn't exceed the global max
-        return Math.min(parsed, config.max_message_window);
-      }
-    }
-    return config.max_message_window;
   };
 
   ctx.command(
@@ -391,9 +379,35 @@ ${limit > 0 ? `📊 使用率：${((usage / limit) * 100).toFixed(2)}%` : ""}
       apiKey: config.openrouter_api_key,
     });
 
+    const {
+      enable_auto_reply,
+      message_window,
+      model = config.model,
+    } = await getChatKVs(
+      msg.chat.id,
+      ["enable_auto_reply", "message_window", "model"],
+      {
+        enable_auto_reply: (customEnable) => {
+          if (customEnable && customEnable !== "true") {
+            return false;
+          }
+          return true;
+        },
+        message_window: (customWindow) => {
+          if (customWindow) {
+            const parsed = parseInt(customWindow, 10);
+            if (!Number.isNaN(parsed) && parsed > 0) {
+              // Ensure it doesn't exceed the global max
+              return Math.min(parsed, config.max_message_window);
+            }
+          }
+          return config.max_message_window;
+        },
+      },
+    );
+
     if (!condition) {
-      const enableAutoReply = await getChatKV(msg.chat.id, "enable_auto_reply");
-      if (enableAutoReply && enableAutoReply !== "true") {
+      if (!enable_auto_reply) {
         return;
       }
 
@@ -446,15 +460,14 @@ ${limit > 0 ? `📊 使用率：${((usage / limit) * 100).toFixed(2)}%` : ""}
 
       const memories = await getMemories(msg.chat.id);
       const prompt = await getPrompt(msg.chat.id);
-      const messageWindow = await getMessageWindow(msg.chat.id);
 
       console.log("[AI] Using prompt:", prompt);
-      console.log("[AI] Using message window:", messageWindow);
+      console.log("[AI] Using message window:", message_window);
 
       // Get cached messages for context with the configured window size
       const cachedMessages = messageCache
         .getMessages(msg.chat.id)
-        .slice(-messageWindow);
+        .slice(-message_window);
 
       const contextMessages: ModelMessage[] = cachedMessages.map(
         (cachedMsg) => {
@@ -479,9 +492,7 @@ ${limit > 0 ? `📊 使用率：${((usage / limit) * 100).toFixed(2)}%` : ""}
 
       // Use AI to generate response with streaming
       const result = streamText({
-        model: openrouter(
-          (await getChatKV(msg.chat.id, "model")) ?? config.model,
-        ), // or any model you prefer
+        model: openrouter(model),
         messages: [
           { role: "system", content: prompt },
           {

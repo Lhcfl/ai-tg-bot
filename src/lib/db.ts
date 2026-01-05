@@ -2,8 +2,6 @@ import type { SQL } from "bun";
 
 type ColumnType = "INTEGER" | "TEXT" | "REAL" | "BLOB";
 
-type SQLiteValue = string | number | boolean | null | Uint8Array;
-
 type InferTSType<T extends ColumnType> = T extends "INTEGER"
   ? number
   : T extends "TEXT"
@@ -20,7 +18,7 @@ interface ColumnDef<T extends ColumnType = ColumnType> {
   autoIncrement?: boolean;
   notNull?: boolean;
   unique?: boolean;
-  default?: SQLiteValue;
+  default?: unknown;
 }
 
 interface IndexDef {
@@ -41,7 +39,7 @@ type QueryResult<T> = T[];
 interface QueryMethods<Schema extends SchemaDefinition> {
   sql<T = InferRowType<Schema>>(
     strings: TemplateStringsArray,
-    ...values: SQLiteValue[]
+    ...values: unknown[]
   ): Promise<QueryResult<T>>;
 }
 
@@ -185,7 +183,7 @@ export class TableBuilder<Schema extends SchemaDefinition> {
    */
   async where<T = InferRowType<Schema>>(
     strings: TemplateStringsArray,
-    ...values: SQLiteValue[]
+    ...values: unknown[]
   ): Promise<QueryResult<T>> {
     const result = await this
       .sql`SELECT * FROM ${this.sql(this.tableName)} WHERE ${this.sql(strings, ...values)}`;
@@ -197,7 +195,7 @@ export class TableBuilder<Schema extends SchemaDefinition> {
    */
   async update(data: Partial<InferRowType<Schema>>) {
     return {
-      where: (arr: TemplateStringsArray, ...values: SQLiteValue[]) => {
+      where: (arr: TemplateStringsArray, ...values: unknown[]) => {
         this.sql`UPDATE ${this.sql(this.tableName)} SET ${this.sql(
           data,
         )} WHERE ${this.sql(arr, ...values)}`;
@@ -210,7 +208,7 @@ export class TableBuilder<Schema extends SchemaDefinition> {
    */
   async deleteWhere(
     arr: TemplateStringsArray,
-    ...values: SQLiteValue[]
+    ...values: unknown[]
   ): Promise<void> {
     return this
       .sql`DELETE FROM ${this.sql(this.tableName)} WHERE ${this.sql(arr, ...values)}`;
